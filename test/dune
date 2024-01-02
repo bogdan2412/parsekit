@@ -1,0 +1,6 @@
+(library
+ (name parsekit_tests)
+ (libraries base parsekit)
+ (inline_tests)
+ (preprocess
+  (pps ppx_jane)))

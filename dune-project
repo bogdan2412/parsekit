@@ -16,4 +16,10 @@
 (package
  (name parsekit)
  (synopsis "Parser combinator library for OCaml")
- (depends ocaml dune base ppx_jane))
+ (depends
+  ocaml
+  dune
+  base
+  ppx_jane
+  (expect_test_helpers_core :with-test)
+  (stdio :with-test)))

@@ -1,6 +1,10 @@
 (library
  (name parsekit_tests)
- (libraries base parsekit)
+ (libraries
+  base
+  expect_test_helpers_core.expect_test_helpers_base
+  stdio
+  parsekit)
  (inline_tests)
  (preprocess
   (pps ppx_jane)))

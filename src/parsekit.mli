@@ -28,47 +28,67 @@ type 'a t
 
 val run : 'a t -> string -> require_input_entirely_consumed:bool -> 'a
 
-(** Combinators *)
+module type S := sig
+  val return : 'a -> 'a t
+  val fail : string -> _ t
 
-val fail : string -> _ t
+  (** Combinators *)
 
+  val bind : 'a t -> f:('a -> 'b t) -> 'b t
+  val map : 'a t -> f:('a -> 'b) -> 'b t
+  val ( >> ) : 'a t -> 'b t -> 'b t
+  val ( << ) : 'a t -> 'b t -> 'a t
+  val many : 'a t -> at_least:int -> at_most:int option -> 'a list t
+  val sep_by : 'a t -> sep:_ t -> at_least:int -> at_most:int option -> 'a list t
+  val fix : ('a t -> 'a t) -> 'a t
+
+  (** Alternatives *)
+
+  val either : 'a t -> 'b t -> ('a, 'b) Either.t t
+  val choices : 'a t list -> 'a t
+
+  (** Prevents backtracking before the current point in the input. *)
+  val commit : unit t
+
+  (** Special parsers *)
+
+  val at_end_of_input : bool t
+  val end_of_input : unit t
+  val consumed_bytes : 'a t -> string t
+  val value_and_consumed_bytes : 'a t -> ('a * string) t
+
+  (** Basic parsers *)
+
+  val peek : len:int -> string option t
+  val take : len:int -> string t
+  val match_ : string -> string t
+  val take_while : f:(char -> bool) -> at_least:int -> at_most:int option -> string t
+
+  (** Matches any amount of whitespace characters, defined as one of [' '; '\t';
+    '\n'; '\r'] *)
+  val whitespace0 : string t
+
+  (** Similar to [whitespace0], but requires at least one whitespace character to
+      be present. *)
+  val whitespace : string t
+
+  val non_negative_integer : int t
+  val integer : int t
+end
+
+include S
 include Monad.S with type 'a t := 'a t
 
-val ( >> ) : 'a t -> 'b t -> 'b t
-val ( << ) : 'a t -> 'b t -> 'a t
-val many : 'a t -> at_least:int -> at_most:int option -> 'a list t
-val sep_by : 'a t -> sep:_ t -> at_least:int -> at_most:int option -> 'a list t
-val fix : ('a t -> 'a t) -> 'a t
+module Let_syntax : sig
+  include module type of struct
+    include Let_syntax
+  end
 
-(** Alternatives *)
+  module Let_syntax : sig
+    include module type of struct
+      include Let_syntax
+    end
 
-val either : 'a t -> 'b t -> ('a, 'b) Either.t t
-val choices : 'a t list -> 'a t
-
-(** Prevents backtracking before the current point in the input. *)
-val commit : unit t
-
-(** Special parsers *)
-
-val at_end_of_input : bool t
-val end_of_input : unit t
-val consumed_bytes : 'a t -> string t
-val value_and_consumed_bytes : 'a t -> ('a * string) t
-
-(** Basic parsers *)
-
-val peek : len:int -> string option t
-val take : len:int -> string t
-val match_ : string -> string t
-val take_while : f:(char -> bool) -> at_least:int -> at_most:int option -> string t
-
-(** Matches any amount of whitespace characters, defined as one of [' '; '\t';
-    '\n'; '\r'] *)
-val whitespace0 : string t
-
-(** Similar to [whitespace0], but requires at least one whitespace character to
-    be present. *)
-val whitespace : string t
-
-val non_negative_integer : int t
-val integer : int t
+    module Open_on_rhs : S
+  end
+end

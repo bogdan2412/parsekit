@@ -112,11 +112,6 @@ let[@inline] return value =
   run
 ;;
 
-let[@inline] fail message =
-  let[@inline] run (_ : Input.t) ~pos = raise (ParseError { pos; message }) in
-  run
-;;
-
 let[@inline] map t ~f =
   let[@inline] run input ~pos =
     let pos, value = t input ~pos in
@@ -133,278 +128,298 @@ let[@inline] bind t ~f =
   run
 ;;
 
-include Monad.Make (struct
-    type nonrec 'a t = 'a t
+module T = struct
+  module M = Monad.Make (struct
+      type nonrec 'a t = 'a t
 
-    let return = return
-    let bind = bind
-    let map = `Custom map
-  end)
+      let return = return
+      let bind = bind
+      let map = `Custom map
+    end)
 
-open Let_syntax
+  include M
 
-let[@inline] ( >> ) t1 t2 =
-  let%map _ = t1
-  and t2 = t2 in
-  t2
-;;
+  let[@inline] fail message =
+    let[@inline] run (_ : Input.t) ~pos = raise (ParseError { pos; message }) in
+    run
+  ;;
 
-let[@inline] ( << ) t1 t2 =
-  let%map t1 = t1
-  and _ = t2 in
-  t1
-;;
+  let[@inline] ( >> ) t1 t2 =
+    let%map.M _ = t1
+    and t2 = t2 in
+    t2
+  ;;
 
-let validate_repeated_args ~at_least ~at_most =
-  (match at_least < 0 with
-   | true ->
-     raise_s [%message "Expected [at_least] argument to be at least 0" (at_least : int)]
-   | false -> ());
-  match at_most with
-  | Some at_most when at_most < at_least ->
-    raise_s
-      [%message
-        "Expected [at_most] argument to be at least [at_least]"
-          (at_least : int)
-          (at_most : int)]
-  | _ -> ()
-;;
+  let[@inline] ( << ) t1 t2 =
+    let%map.M t1 = t1
+    and _ = t2 in
+    t1
+  ;;
 
-let many =
-  let rec loop t ~at_least ~at_most input ~pos acc =
-    match t input ~pos with
-    | exception ParseError { pos = current_pos; message } ->
-      Input.ensure_can_backtrack
-        input
-        ~current_pos
-        ~backtrack_to:pos
-        ~message_on_error:message;
-      (match Queue.length acc < at_least with
-       | true ->
-         raise
-           (ParseError
-              { pos; message = [%string "not enough instances of `parser`: %{message}"] })
-       | false -> pos, Queue.to_list acc)
-    | new_pos, value ->
-      Queue.enqueue acc value;
-      (* If we haven't made any progress through the input since last
-         time and we have enough values, stop here rather than keep
-         on going forever. *)
-      (match pos = new_pos && Queue.length acc >= at_least with
-       | true -> new_pos, Queue.to_list acc
-       | false ->
-         (match at_most with
-          | Some at_most when Queue.length acc = at_most -> new_pos, Queue.to_list acc
-          | _ -> loop t ~at_least ~at_most input ~pos:new_pos acc))
-  in
-  fun [@inline] t ~at_least ~at_most ->
+  let validate_repeated_args ~at_least ~at_most =
+    (match at_least < 0 with
+     | true ->
+       raise_s [%message "Expected [at_least] argument to be at least 0" (at_least : int)]
+     | false -> ());
+    match at_most with
+    | Some at_most when at_most < at_least ->
+      raise_s
+        [%message
+          "Expected [at_most] argument to be at least [at_least]"
+            (at_least : int)
+            (at_most : int)]
+    | _ -> ()
+  ;;
+
+  let many =
+    let rec loop t ~at_least ~at_most input ~pos acc =
+      match t input ~pos with
+      | exception ParseError { pos = current_pos; message } ->
+        Input.ensure_can_backtrack
+          input
+          ~current_pos
+          ~backtrack_to:pos
+          ~message_on_error:message;
+        (match Queue.length acc < at_least with
+         | true ->
+           raise
+             (ParseError
+                { pos
+                ; message = [%string "not enough instances of `parser`: %{message}"]
+                })
+         | false -> pos, Queue.to_list acc)
+      | new_pos, value ->
+        Queue.enqueue acc value;
+        (* If we haven't made any progress through the input since last
+           time and we have enough values, stop here rather than keep
+           on going forever. *)
+        (match pos = new_pos && Queue.length acc >= at_least with
+         | true -> new_pos, Queue.to_list acc
+         | false ->
+           (match at_most with
+            | Some at_most when Queue.length acc = at_most -> new_pos, Queue.to_list acc
+            | _ -> loop t ~at_least ~at_most input ~pos:new_pos acc))
+    in
+    fun [@inline] t ~at_least ~at_most ->
+      validate_repeated_args ~at_least ~at_most;
+      match at_least, at_most with
+      | 0, Some 0 -> return []
+      | _ ->
+        let[@inline] run input ~pos =
+          loop t ~at_least ~at_most input ~pos (Queue.create ())
+        in
+        run
+  ;;
+
+  let choices =
+    let rec loop ts input ~pos =
+      match ts with
+      | [] -> raise (ParseError { pos; message = "no matching choice" })
+      | hd :: tl ->
+        (match hd input ~pos with
+         | exception ParseError { pos = current_pos; message } ->
+           Input.ensure_can_backtrack
+             input
+             ~current_pos
+             ~backtrack_to:pos
+             ~message_on_error:message;
+           loop tl input ~pos
+         | new_pos, value -> new_pos, value)
+    in
+    fun [@inline] ts ->
+      let[@inline] run input ~pos = loop ts input ~pos in
+      run
+  ;;
+
+  let[@inline] sep_by t ~sep ~at_least ~at_most =
     validate_repeated_args ~at_least ~at_most;
     match at_least, at_most with
     | 0, Some 0 -> return []
     | _ ->
+      let at_least_one =
+        let%map.M hd = t
+        and tl =
+          many
+            (sep >> t)
+            ~at_least:(Int.max 0 (at_least - 1))
+            ~at_most:
+              (match at_most with
+               | None -> None
+               | Some at_most -> Some (Int.max 0 (at_most - 1)))
+        in
+        hd :: tl
+      in
+      (match at_least with
+       | 0 -> choices [ at_least_one; return [] ]
+       | _ -> at_least_one)
+  ;;
+
+  let[@inline] fix fn =
+    let rec t = fun [@inline] input ~pos -> fn t input ~pos in
+    t
+  ;;
+
+  let[@inline] either t1 t2 =
+    let t1 =
+      let%map.M t1 = t1 in
+      (First t1 : _ Either.t)
+    in
+    let t2 =
+      let%map.M t2 = t2 in
+      (Second t2 : _ Either.t)
+    in
+    choices [ t1; t2 ]
+  ;;
+
+  let commit =
+    let[@inline] run input ~pos =
+      Input.commit_position input pos;
+      pos, ()
+    in
+    run
+  ;;
+
+  let at_end_of_input =
+    let[@inline] run input ~pos = pos, Input.length input = pos in
+    run
+  ;;
+
+  let end_of_input =
+    let[@inline] run input ~pos =
+      match pos < Input.length input with
+      | true -> raise (ParseError { pos; message = "not at end of input" })
+      | false -> pos, ()
+    in
+    run
+  ;;
+
+  let[@inline] consumed_bytes t =
+    let[@inline] run input ~pos =
+      let new_pos, _ = t input ~pos in
+      new_pos, Input.slice input ~pos ~len:(new_pos - pos)
+    in
+    run
+  ;;
+
+  let[@inline] value_and_consumed_bytes t =
+    let[@inline] run input ~pos =
+      let new_pos, value = t input ~pos in
+      new_pos, (value, Input.slice input ~pos ~len:(new_pos - pos))
+    in
+    run
+  ;;
+
+  let validate_len_arg len =
+    match len < 0 with
+    | true -> raise_s [%message "Expected [len] argument to be at least 0" (len : int)]
+    | false -> ()
+  ;;
+
+  let[@inline] peek ~len =
+    validate_len_arg len;
+    let[@inline] run input ~pos =
+      let value =
+        match pos + len > Input.length input with
+        | true -> None
+        | false -> Some (Input.slice input ~pos ~len)
+      in
+      pos, value
+    in
+    run
+  ;;
+
+  let[@inline] take ~len =
+    validate_len_arg len;
+    let[@inline] run input ~pos =
+      let value =
+        match pos + len > Input.length input with
+        | true -> raise (ParseError { pos; message = "insufficient input" })
+        | false -> Input.slice input ~pos ~len
+      in
+      pos + len, value
+    in
+    run
+  ;;
+
+  let[@inline] match_ value =
+    let[@inline] run input ~pos =
+      let value_len = String.length value in
+      match pos + value_len > Input.length input with
+      | true -> raise (ParseError { pos; message = "insufficient input" })
+      | false ->
+        let slice = Input.slice input ~pos ~len:value_len in
+        (match String.( = ) slice value with
+         | true -> pos + value_len, value
+         | false ->
+           raise (ParseError { pos; message = [%string "expected string %{value}"] }))
+    in
+    run
+  ;;
+
+  let take_while =
+    let rec loop ~f ~at_least ~at_most input ~pos ~input_len acc =
+      let bounds_ok = pos + acc < input_len in
+      let at_most_ok =
+        match at_most with
+        | None -> true
+        | Some at_most -> acc < at_most
+      in
+      match bounds_ok && at_most_ok && f (Input.get input (pos + acc)) with
+      | true -> loop ~f ~at_least ~at_most input ~pos ~input_len (acc + 1)
+      | false ->
+        (match acc < at_least with
+         | true ->
+           raise
+             (ParseError
+                { pos = pos + acc
+                ; message = [%string "expected at least %{at_least#Int} matching chars"]
+                })
+         | false -> pos + acc, Input.slice input ~pos ~len:acc)
+    in
+    fun [@inline] ~f ~at_least ~at_most ->
+      validate_repeated_args ~at_least ~at_most;
       let[@inline] run input ~pos =
-        loop t ~at_least ~at_most input ~pos (Queue.create ())
+        loop ~f ~at_least ~at_most input ~pos ~input_len:(Input.length input) 0
       in
       run
-;;
+  ;;
 
-let choices =
-  let rec loop ts input ~pos =
-    match ts with
-    | [] -> raise (ParseError { pos; message = "no matching choice" })
-    | hd :: tl ->
-      (match hd input ~pos with
-       | exception ParseError { pos = current_pos; message } ->
-         Input.ensure_can_backtrack
-           input
-           ~current_pos
-           ~backtrack_to:pos
-           ~message_on_error:message;
-         loop tl input ~pos
-       | new_pos, value -> new_pos, value)
-  in
-  fun [@inline] ts ->
-    let[@inline] run input ~pos = loop ts input ~pos in
-    run
-;;
+  let[@inline] is_whitespace = function
+    | ' ' | '\t' | '\n' | '\r' -> true
+    | _ -> false
+  ;;
 
-let[@inline] sep_by t ~sep ~at_least ~at_most =
-  validate_repeated_args ~at_least ~at_most;
-  match at_least, at_most with
-  | 0, Some 0 -> return []
-  | _ ->
-    let at_least_one =
-      let%map hd = t
-      and tl =
-        many
-          (sep >> t)
-          ~at_least:(Int.max 0 (at_least - 1))
-          ~at_most:
-            (match at_most with
-             | None -> None
-             | Some at_most -> Some (Int.max 0 (at_most - 1)))
-      in
-      hd :: tl
+  let whitespace0 = take_while ~f:is_whitespace ~at_least:0 ~at_most:None
+  let whitespace = take_while ~f:is_whitespace ~at_least:1 ~at_most:None
+
+  let non_negative_integer =
+    let%map.M digits =
+      take_while
+        ~f:(function
+          | '0' .. '9' -> true
+          | _ -> false)
+        ~at_least:1
+        ~at_most:None
     in
-    (match at_least with
-     | 0 -> choices [ at_least_one; return [] ]
-     | _ -> at_least_one)
-;;
+    Int.of_string digits
+  ;;
 
-let[@inline] fix fn =
-  let rec t = fun [@inline] input ~pos -> fn t input ~pos in
-  t
-;;
+  let integer =
+    let%map.M minus = take_while ~f:(Char.( = ) '-') ~at_least:0 ~at_most:(Some 1)
+    and value = non_negative_integer in
+    match String.( = ) minus "" with
+    | true -> value
+    | false -> -value
+  ;;
+end
 
-let[@inline] either t1 t2 =
-  let t1 =
-    let%map t1 = t1 in
-    (First t1 : _ Either.t)
-  in
-  let t2 =
-    let%map t2 = t2 in
-    (Second t2 : _ Either.t)
-  in
-  choices [ t1; t2 ]
-;;
+include T
 
-let commit =
-  let[@inline] run input ~pos =
-    Input.commit_position input pos;
-    pos, ()
-  in
-  run
-;;
+module Let_syntax = struct
+  include Let_syntax
 
-let at_end_of_input =
-  let[@inline] run input ~pos = pos, Input.length input = pos in
-  run
-;;
-
-let end_of_input =
-  let[@inline] run input ~pos =
-    match pos < Input.length input with
-    | true -> raise (ParseError { pos; message = "not at end of input" })
-    | false -> pos, ()
-  in
-  run
-;;
-
-let[@inline] consumed_bytes t =
-  let[@inline] run input ~pos =
-    let new_pos, _ = t input ~pos in
-    new_pos, Input.slice input ~pos ~len:(new_pos - pos)
-  in
-  run
-;;
-
-let[@inline] value_and_consumed_bytes t =
-  let[@inline] run input ~pos =
-    let new_pos, value = t input ~pos in
-    new_pos, (value, Input.slice input ~pos ~len:(new_pos - pos))
-  in
-  run
-;;
-
-let validate_len_arg len =
-  match len < 0 with
-  | true -> raise_s [%message "Expected [len] argument to be at least 0" (len : int)]
-  | false -> ()
-;;
-
-let[@inline] peek ~len =
-  validate_len_arg len;
-  let[@inline] run input ~pos =
-    let value =
-      match pos + len > Input.length input with
-      | true -> None
-      | false -> Some (Input.slice input ~pos ~len)
-    in
-    pos, value
-  in
-  run
-;;
-
-let[@inline] take ~len =
-  validate_len_arg len;
-  let[@inline] run input ~pos =
-    let value =
-      match pos + len > Input.length input with
-      | true -> raise (ParseError { pos; message = "insufficient input" })
-      | false -> Input.slice input ~pos ~len
-    in
-    pos + len, value
-  in
-  run
-;;
-
-let[@inline] match_ value =
-  let[@inline] run input ~pos =
-    let value_len = String.length value in
-    match pos + value_len > Input.length input with
-    | true -> raise (ParseError { pos; message = "insufficient input" })
-    | false ->
-      let slice = Input.slice input ~pos ~len:value_len in
-      (match String.( = ) slice value with
-       | true -> pos + value_len, value
-       | false ->
-         raise (ParseError { pos; message = [%string "expected string %{value}"] }))
-  in
-  run
-;;
-
-let take_while =
-  let rec loop ~f ~at_least ~at_most input ~pos ~input_len acc =
-    let bounds_ok = pos + acc < input_len in
-    let at_most_ok =
-      match at_most with
-      | None -> true
-      | Some at_most -> acc < at_most
-    in
-    match bounds_ok && at_most_ok && f (Input.get input (pos + acc)) with
-    | true -> loop ~f ~at_least ~at_most input ~pos ~input_len (acc + 1)
-    | false ->
-      (match acc < at_least with
-       | true ->
-         raise
-           (ParseError
-              { pos = pos + acc
-              ; message = [%string "expected at least %{at_least#Int} matching chars"]
-              })
-       | false -> pos + acc, Input.slice input ~pos ~len:acc)
-  in
-  fun [@inline] ~f ~at_least ~at_most ->
-    validate_repeated_args ~at_least ~at_most;
-    let[@inline] run input ~pos =
-      loop ~f ~at_least ~at_most input ~pos ~input_len:(Input.length input) 0
-    in
-    run
-;;
-
-let[@inline] is_whitespace = function
-  | ' ' | '\t' | '\n' | '\r' -> true
-  | _ -> false
-;;
-
-let whitespace0 = take_while ~f:is_whitespace ~at_least:0 ~at_most:None
-let whitespace = take_while ~f:is_whitespace ~at_least:1 ~at_most:None
-
-let non_negative_integer =
-  let%map digits =
-    take_while
-      ~f:(function
-        | '0' .. '9' -> true
-        | _ -> false)
-      ~at_least:1
-      ~at_most:None
-  in
-  Int.of_string digits
-;;
-
-let integer =
-  let%map minus = take_while ~f:(Char.( = ) '-') ~at_least:0 ~at_most:(Some 1)
-  and value = non_negative_integer in
-  match String.( = ) minus "" with
-  | true -> value
-  | false -> -value
-;;
+  module Let_syntax = struct
+    include Let_syntax
+    module Open_on_rhs = T
+  end
+end

@@ -1,0 +1,6 @@
+(library
+ (public_name json-parsekit)
+ (name json_parsekit)
+ (libraries base parsekit)
+ (preprocess
+  (pps ppx_jane)))

@@ -128,7 +128,7 @@ let[@inline] bind t ~f =
   run
 ;;
 
-module T = struct
+module T0 = struct
   module M = Monad.Make (struct
       type nonrec 'a t = 'a t
 
@@ -315,6 +315,75 @@ module T = struct
     | false -> ()
   ;;
 
+  let[@cold] exn_insufficient_input ~pos =
+    ParseError { pos; message = "insufficient input" }
+  ;;
+
+  let peek1 =
+    let[@inline] run input ~pos =
+      let value =
+        match pos >= Input.length input with
+        | true -> None
+        | false -> Some (Input.get input pos)
+      in
+      pos, value
+    in
+    run
+  ;;
+
+  let skip1 =
+    let[@inline] run input ~pos =
+      let value =
+        match pos >= Input.length input with
+        | true -> raise @@ exn_insufficient_input ~pos
+        | false -> ()
+      in
+      pos + 1, value
+    in
+    run
+  ;;
+
+  let take1 =
+    let[@inline] run input ~pos =
+      let value =
+        match pos >= Input.length input with
+        | true -> raise @@ exn_insufficient_input ~pos
+        | false -> Input.get input pos
+      in
+      pos + 1, value
+    in
+    run
+  ;;
+
+  let[@inline] match1 value =
+    let[@inline] run input ~pos =
+      match pos >= Input.length input with
+      | true -> raise @@ exn_insufficient_input ~pos
+      | false ->
+        let chr = Input.get input pos in
+        (match Char.( = ) chr value with
+         | true -> pos + 1, value
+         | false ->
+           raise
+             (ParseError { pos; message = [%string "expected character %{value#Char}"] }))
+    in
+    run
+  ;;
+
+  let[@inline] take1_cond f =
+    let[@inline] run input ~pos =
+      match pos >= Input.length input with
+      | true -> raise @@ exn_insufficient_input ~pos
+      | false ->
+        let chr = Input.get input pos in
+        (match f chr with
+         | true -> pos + 1, chr
+         | false ->
+           raise (ParseError { pos; message = "character did not satisfy condition" }))
+    in
+    run
+  ;;
+
   let[@inline] peek ~len =
     validate_len_arg len;
     let[@inline] run input ~pos =
@@ -328,24 +397,26 @@ module T = struct
     run
   ;;
 
-  let[@inline] take ~len =
+  let[@inline] skip ~len =
     validate_len_arg len;
     let[@inline] run input ~pos =
       let value =
         match pos + len > Input.length input with
-        | true -> raise (ParseError { pos; message = "insufficient input" })
-        | false -> Input.slice input ~pos ~len
+        | true -> raise @@ exn_insufficient_input ~pos
+        | false -> ()
       in
       pos + len, value
     in
     run
   ;;
 
+  let[@inline] take ~len = consumed_bytes (skip ~len)
+
   let[@inline] match_ value =
     let[@inline] run input ~pos =
       let value_len = String.length value in
       match pos + value_len > Input.length input with
-      | true -> raise (ParseError { pos; message = "insufficient input" })
+      | true -> raise @@ exn_insufficient_input ~pos
       | false ->
         let slice = Input.slice input ~pos ~len:value_len in
         (match String.( = ) slice value with
@@ -356,7 +427,7 @@ module T = struct
     run
   ;;
 
-  let take_while =
+  let skip_while =
     let rec loop ~f ~at_least ~at_most input ~pos ~input_len acc =
       let bounds_ok = pos + acc < input_len in
       let at_most_ok =
@@ -374,7 +445,7 @@ module T = struct
                 { pos = pos + acc
                 ; message = [%string "expected at least %{at_least#Int} matching chars"]
                 })
-         | false -> pos + acc, Input.slice input ~pos ~len:acc)
+         | false -> pos + acc, ())
     in
     fun [@inline] ~f ~at_least ~at_most ->
       validate_repeated_args ~at_least ~at_most;
@@ -384,13 +455,37 @@ module T = struct
       run
   ;;
 
+  let[@inline] take_while ~f ~at_least ~at_most =
+    consumed_bytes (skip_while ~f ~at_least ~at_most)
+  ;;
+
+  let fold =
+    let rec loop acc ~f input ~pos =
+      match pos > Input.length input with
+      | true -> raise @@ exn_insufficient_input ~pos
+      | false ->
+        let peek =
+          match pos = Input.length input with
+          | true -> `Eof
+          | false -> `Char (Input.get input pos)
+        in
+        (match f acc ~peek with
+         | `Fail message -> raise (ParseError { pos; message })
+         | `Return acc -> pos, acc
+         | `Advance acc -> loop acc ~f input ~pos:(pos + 1))
+    in
+    fun [@inline] ~init ~f ->
+      let[@inline] run input ~pos = loop init ~f input ~pos in
+      run
+  ;;
+
   let[@inline] is_whitespace = function
     | ' ' | '\t' | '\n' | '\r' -> true
     | _ -> false
   ;;
 
-  let whitespace0 = take_while ~f:is_whitespace ~at_least:0 ~at_most:None
-  let whitespace = take_while ~f:is_whitespace ~at_least:1 ~at_most:None
+  let whitespace0 = skip_while ~f:is_whitespace ~at_least:0 ~at_most:None
+  let whitespace = skip_while ~f:is_whitespace ~at_least:1 ~at_most:None
 
   let non_negative_integer =
     let%map.M digits =
@@ -413,13 +508,30 @@ module T = struct
   ;;
 end
 
-include T
-
-module Let_syntax = struct
-  include Let_syntax
+module T = struct
+  include T0
 
   module Let_syntax = struct
     include Let_syntax
-    module Open_on_rhs = T
+
+    module Let_syntax = struct
+      include Let_syntax
+      module Open_on_rhs = T0
+    end
   end
+end
+
+include T
+
+module With_let_syntax = struct
+  exception
+    ParseError of
+      { pos : int
+      ; message : string
+      }
+
+  let run = run
+
+  include T
+  include Let_syntax
 end

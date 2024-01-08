@@ -1,6 +1,5 @@
 open! Base
-include Parsekit
-include Parsekit.Let_syntax
+include Parsekit.With_let_syntax
 
 let show_raise = Expect_test_helpers_base.show_raise
 

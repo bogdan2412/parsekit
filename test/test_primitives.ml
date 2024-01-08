@@ -54,6 +54,32 @@ let%expect_test "end_of_input" =
   [%expect {| abc |}]
 ;;
 
+let%expect_test "char parsers" =
+  run peek1 "" true [%sexp_of: char option];
+  [%expect {| () |}];
+  run peek1 "abc" false [%sexp_of: char option];
+  [%expect {| (a) |}];
+  run (peek1 << match_ "abc") "abc" false [%sexp_of: char option];
+  [%expect {| (a) |}];
+  run (skip1 << match_ "bc") "abc" true [%sexp_of: unit];
+  [%expect {| () |}];
+  show_raise (fun () -> run skip1 "" false [%sexp_of: unit]);
+  [%expect {| (raised ("Parsekit.ParseError(0, \"insufficient input\")")) |}];
+  run (take1 << match_ "bc") "abc" true [%sexp_of: char];
+  [%expect {| a |}];
+  show_raise (fun () -> run take1 "" false [%sexp_of: char]);
+  [%expect {| (raised ("Parsekit.ParseError(0, \"insufficient input\")")) |}];
+  run (match1 'a' << match_ "bc") "abc" true [%sexp_of: char];
+  [%expect {| a |}];
+  show_raise (fun () -> run (match1 'b') "abc" true [%sexp_of: char]);
+  [%expect {| (raised ("Parsekit.ParseError(0, \"expected character b\")")) |}];
+  run (take1_cond Char.is_digit) "2" true [%sexp_of: char];
+  [%expect {| 2 |}];
+  show_raise (fun () -> run (take1_cond Char.is_digit) "a" false [%sexp_of: char]);
+  [%expect
+    {| (raised ("Parsekit.ParseError(0, \"character did not satisfy condition\")")) |}]
+;;
+
 let%expect_test "peek" =
   let t = peek ~len:3 in
   run t "abcd" false [%sexp_of: string option];
@@ -64,9 +90,25 @@ let%expect_test "peek" =
   [%expect {| () |}];
   show_raise (fun () -> run t "abc" true [%sexp_of: string option]);
   [%expect {| (raised ("Parsekit.ParseError(0, \"not at end of input\")")) |}];
-  run (peek ~len:0) "abc" false [%sexp_of: string option];
+  run (peek ~len:0 << match_ "abc") "abc" true [%sexp_of: string option];
   [%expect {| ("") |}];
   show_raise (fun () -> peek ~len:(-1));
+  [%expect {| (raised ("Expected [len] argument to be at least 0" (len -1))) |}]
+;;
+
+let%expect_test "skip" =
+  let t = skip ~len:3 in
+  run t "abcd" false [%sexp_of: unit];
+  [%expect {| () |}];
+  run t "abc" false [%sexp_of: unit];
+  [%expect {| () |}];
+  run t "abc" true [%sexp_of: unit];
+  [%expect {| () |}];
+  show_raise (fun () -> run t "ab" false [%sexp_of: unit]);
+  [%expect {| (raised ("Parsekit.ParseError(0, \"insufficient input\")")) |}];
+  run (skip ~len:0 << match_ "abc") "abc" true [%sexp_of: unit];
+  [%expect {| () |}];
+  show_raise (fun () -> skip ~len:(-1));
   [%expect {| (raised ("Expected [len] argument to be at least 0" (len -1))) |}]
 ;;
 
@@ -80,7 +122,7 @@ let%expect_test "take" =
   [%expect {| abc |}];
   show_raise (fun () -> run t "ab" false [%sexp_of: string]);
   [%expect {| (raised ("Parsekit.ParseError(0, \"insufficient input\")")) |}];
-  run (take ~len:0) "abc" false [%sexp_of: string];
+  run (take ~len:0 << match_ "abc") "abc" true [%sexp_of: string];
   [%expect {| "" |}];
   show_raise (fun () -> take ~len:(-1));
   [%expect {| (raised ("Expected [len] argument to be at least 0" (len -1))) |}]
@@ -98,6 +140,31 @@ let%expect_test "match_" =
   [%expect {| (raised ("Parsekit.ParseError(0, \"insufficient input\")")) |}];
   run (match_ "") "abc" false [%sexp_of: string];
   [%expect {| "" |}]
+;;
+
+let%expect_test "fold" =
+  let t =
+    fold ~init:0 ~f:(fun acc ~peek ->
+      match peek with
+      | `Eof -> `Return acc
+      | `Char char ->
+        (match Char.( <= ) '0' char && Char.( <= ) char '9' with
+         | false -> `Return acc
+         | true ->
+           (match Char.to_int char = Char.to_int '0' + acc with
+            | true -> `Advance (acc + 1)
+            | false -> `Fail [%string "Expected %{acc#Int}"])))
+  in
+  run t "01234" true [%sexp_of: int];
+  [%expect {| 5 |}];
+  run (t << match_ "abc") "01234abc" true [%sexp_of: int];
+  [%expect {| 5 |}];
+  show_raise (fun () -> run t "01245" false [%sexp_of: int]);
+  [%expect {| (raised ("Parsekit.ParseError(3, \"Expected 3\")")) |}];
+  run t "a" false [%sexp_of: int];
+  [%expect {| 0 |}];
+  run t "0a" false [%sexp_of: int];
+  [%expect {| 1 |}]
 ;;
 
 let%expect_test "take_while" =
@@ -137,11 +204,11 @@ let%expect_test "take_while" =
 ;;
 
 let%expect_test "whitespace" =
-  run whitespace " abcd" false [%sexp_of: string];
+  run (consumed_bytes whitespace) " abcd" false [%sexp_of: string];
   [%expect {| " " |}];
-  run whitespace " \t abcd" false [%sexp_of: string];
+  run (consumed_bytes whitespace) " \t abcd" false [%sexp_of: string];
   [%expect {| " \t " |}];
-  show_raise (fun () -> run whitespace "abcd" false [%sexp_of: string]);
+  show_raise (fun () -> run (consumed_bytes whitespace) "abcd" false [%sexp_of: string]);
   [%expect
     {| (raised ("Parsekit.ParseError(0, \"expected at least 1 matching chars\")")) |}]
 ;;

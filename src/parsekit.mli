@@ -18,17 +18,9 @@
 open! Base
 open! Import
 
-exception
-  ParseError of
-    { pos : int
-    ; message : string
-    }
+module type Combinators := sig
+  type 'a t
 
-type 'a t
-
-val run : 'a t -> string -> require_input_entirely_consumed:bool -> 'a
-
-module type S := sig
   val return : 'a -> 'a t
   val fail : string -> _ t
 
@@ -57,27 +49,59 @@ module type S := sig
   val consumed_bytes : 'a t -> string t
   val value_and_consumed_bytes : 'a t -> ('a * string) t
 
-  (** Basic parsers *)
+  (** Basic parsers - character level *)
+
+  val peek1 : char option t
+  val skip1 : unit t
+  val take1 : char t
+  val match1 : char -> char t
+  val take1_cond : (char -> bool) -> char t
+
+  (** Basic parsers - string level *)
 
   val peek : len:int -> string option t
+  val skip : len:int -> unit t
   val take : len:int -> string t
   val match_ : string -> string t
+  val skip_while : f:(char -> bool) -> at_least:int -> at_most:int option -> unit t
   val take_while : f:(char -> bool) -> at_least:int -> at_most:int option -> string t
+
+  val fold
+    :  init:'acc
+    -> f:
+         ('acc
+          -> peek:[ `Char of char | `Eof ]
+          -> [ `Fail of string | `Return of 'acc | `Advance of 'acc ])
+    -> 'acc t
 
   (** Matches any amount of whitespace characters, defined as one of [' '; '\t';
     '\n'; '\r'] *)
-  val whitespace0 : string t
+  val whitespace0 : unit t
 
   (** Similar to [whitespace0], but requires at least one whitespace character to
       be present. *)
-  val whitespace : string t
+  val whitespace : unit t
 
   val non_negative_integer : int t
   val integer : int t
 end
 
-include S
-include Monad.S with type 'a t := 'a t
+module type Parser := sig
+  exception
+    ParseError of
+      { pos : int
+      ; message : string
+      }
+
+  type 'a t
+
+  val run : 'a t -> string -> require_input_entirely_consumed:bool -> 'a
+
+  include Monad.S with type 'a t := 'a t
+  include Combinators with type 'a t := 'a t
+end
+
+include Parser
 
 module Let_syntax : sig
   include module type of struct
@@ -89,6 +113,14 @@ module Let_syntax : sig
       include Let_syntax
     end
 
-    module Open_on_rhs : S
+    module Open_on_rhs : Combinators with type 'a t := 'a t
+  end
+end
+
+module With_let_syntax : sig
+  include Parser with type 'a t := 'a t
+
+  include module type of struct
+    include Let_syntax
   end
 end

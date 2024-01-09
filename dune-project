@@ -23,3 +23,14 @@
   ppx_jane
   (expect_test_helpers_core :with-test)
   (stdio :with-test)))
+
+(package
+ (name json-parsekit)
+ (synopsis "JSON parsing library built using the Parsekit library")
+ (depends
+  ocaml
+  dune
+  base
+  parsekit
+  ppx_jane
+  (stdio :with-test)))

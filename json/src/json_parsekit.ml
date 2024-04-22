@@ -188,7 +188,7 @@ module Parser = struct
           ~sep:(whitespace0 >> match1 ',' << whitespace0)
           ~at_least:0
           ~at_most:None
-        >>| Map.of_alist_exn (module String))
+        >>| Map.of_alist_reduce (module String) ~f:(fun _ snd -> snd))
     << whitespace0
     << match1 '}'
   ;;

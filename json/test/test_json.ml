@@ -84,6 +84,17 @@ let%expect_test "Data type examples" =
     🚀 |}]
 ;;
 
+let%expect_test "last value wins on duplicate keys" =
+  let input = {| { "a": 1, "a": 2 } |} in
+  let t = Parsekit.run Json.parser input ~require_input_entirely_consumed:true in
+  print_s [%sexp (t : Json.t)];
+  [%expect {| (Dictionary ((a (Number 2)))) |}];
+  let input = {| { "\t": 1, "\u0009": 2 } |} in
+  let t = Parsekit.run Json.parser input ~require_input_entirely_consumed:true in
+  print_s [%sexp (t : Json.t)];
+  [%expect {| (Dictionary (("\t" (Number 2)))) |}]
+;;
+
 let%expect_test "compliance tests" =
   let dir = "compliance" in
   let test_suite =
@@ -162,8 +173,8 @@ let%expect_test "compliance tests" =
                                          y_number_simple_real: PASS
                                                      y_object: PASS
                                                y_object_basic: PASS
-                                      y_object_duplicated_key: FAIL
-                            y_object_duplicated_key_and_value: FAIL
+                                      y_object_duplicated_key: PASS
+                            y_object_duplicated_key_and_value: PASS
                                                y_object_empty: PASS
                                            y_object_empty_key: PASS
                                  y_object_escaped_null_in_key: PASS

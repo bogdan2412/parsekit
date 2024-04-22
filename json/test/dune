@@ -1,6 +1,8 @@
 (library
  (name json_parsekit_tests)
  (libraries base json_parsekit stdio)
- (inline_tests)
+ (inline_tests
+  (deps
+   (glob_files compliance/*)))
  (preprocess
   (pps ppx_jane)))

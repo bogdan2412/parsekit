@@ -506,6 +506,19 @@ module T0 = struct
     | true -> value
     | false -> -value
   ;;
+
+  let buffered_output ?(initial_capacity = 8192) t =
+    let buf = Buffer.create initial_capacity in
+    let emit char = Buffer.add_char buf char in
+    let t : _ t = t ~emit in
+    let[@inline] run input ~pos =
+      Buffer.clear buf;
+      let pos, () = t input ~pos in
+      let output = Buffer.contents buf in
+      pos, output
+    in
+    run
+  ;;
 end
 
 module T = struct

@@ -1,12 +1,10 @@
-Tue Apr 23 01:46:46 PM BST 2024
+Tue Apr 23 02:53:51 PM BST 2024
 Estimated testing time 40s (4 benchmarks x 10s). Change using '-quota'.
 ┌────────────────────┬──────────┬─────────┬────────────┬────────────┬────────────┐
 │ Name               │ Time/Run │ mWd/Run │   mjWd/Run │   Prom/Run │ Percentage │
 ├────────────────────┼──────────┼─────────┼────────────┼────────────┼────────────┤
-│ canada.json        │ 122.17ms │ 88.53Mw │ 1_307.47kw │ 1_194.27kw │    100.00% │
-│ citm_catalog.json  │  56.32ms │ 31.08Mw │   453.56kw │   453.56kw │     46.10% │
-│ twitter-ascii.json │  38.09ms │ 22.03Mw │   234.67kw │   234.67kw │     31.18% │
-│ twitter.json       │  32.75ms │ 16.27Mw │   296.11kw │   214.03kw │     26.80% │
+│ canada.json        │  98.50ms │ 58.51Mw │ 1_250.91kw │ 1_137.71kw │    100.00% │
+│ citm_catalog.json  │  48.38ms │ 19.66Mw │   417.50kw │   417.50kw │     49.11% │
+│ twitter-ascii.json │  32.24ms │ 12.03Mw │   203.69kw │   203.69kw │     32.73% │
+│ twitter.json       │  27.87ms │  9.39Mw │   277.14kw │   195.06kw │     28.29% │
 └────────────────────┴──────────┴─────────┴────────────┴────────────┴────────────┘
-Benchmarks that take 1ns to 100ms can be estimated precisely. For more reliable 
-estimates, redesign your benchmark to have a shorter execution time.

@@ -277,7 +277,18 @@ module T0 = struct
   ;;
 
   let[@inline] fix fn =
-    let rec t = fun [@inline] state -> fn t state in
+    let rec t =
+      let cache = ref None in
+      let[@inline] run state =
+        match !cache with
+        | Some parser -> parser state
+        | None ->
+          let parser = fn t in
+          cache := Some parser;
+          parser state
+      in
+      run
+    in
     t
   ;;
 

@@ -30,11 +30,11 @@ exception
     ; message : string
     }
 
-module Input : sig
+module State : sig
   type t
 
   val create : string -> t
-  val length : t -> int
+  val input_len : t -> int
   val get : t -> int -> char
   val slice : t -> pos:int -> len:int -> string
 
@@ -53,7 +53,7 @@ end = struct
     }
 
   let create buf = { buf; committed_bytes = 0 }
-  let length t = String.length t.buf
+  let input_len t = String.length t.buf
   let get t pos = String.get t.buf pos
   let slice t ~pos ~len = String.sub t.buf ~pos ~len
 
@@ -92,40 +92,40 @@ end = struct
   ;;
 end
 
-type 'a t = Input.t -> pos:int -> int * 'a
+type 'a t = State.t -> pos:int -> int * 'a
 
 let[@inline] run t buf ~require_input_entirely_consumed =
-  let input = Input.create buf in
-  match t input ~pos:0 with
+  let state = State.create buf in
+  match t state ~pos:0 with
   | exception InternalParseError { pos; message } ->
     let backtrace = Backtrace.Exn.most_recent () in
     Exn.raise_with_original_backtrace
       (ParseError { pos; message = force message })
       backtrace
   | pos, result ->
-    (match require_input_entirely_consumed && pos < Input.length input with
+    (match require_input_entirely_consumed && pos < State.input_len state with
      | true -> raise (ParseError { pos; message = "not at end of input" })
      | false -> ());
     result
 ;;
 
 let[@inline] return value =
-  let[@inline] run (_ : Input.t) ~pos = pos, value in
+  let[@inline] run (_ : State.t) ~pos = pos, value in
   run
 ;;
 
 let[@inline] map t ~f =
-  let[@inline] run input ~pos =
-    let pos, value = t input ~pos in
+  let[@inline] run state ~pos =
+    let pos, value = t state ~pos in
     pos, f value
   in
   run
 ;;
 
 let[@inline] bind t ~f =
-  let[@inline] run input ~pos =
-    let pos, value = t input ~pos in
-    f value input ~pos
+  let[@inline] run state ~pos =
+    let pos, value = t state ~pos in
+    f value state ~pos
   in
   run
 ;;
@@ -144,12 +144,12 @@ module T0 = struct
   let[@inline] parse_error message ~pos = raise (InternalParseError { pos; message })
 
   let[@inline] fail message =
-    let[@inline] run (_ : Input.t) ~pos = parse_error (lazy message) ~pos in
+    let[@inline] run (_ : State.t) ~pos = parse_error (lazy message) ~pos in
     run
   ;;
 
   let[@inline] fail' message =
-    let[@inline] run (_ : Input.t) ~pos = parse_error message ~pos in
+    let[@inline] run (_ : State.t) ~pos = parse_error message ~pos in
     run
   ;;
 
@@ -181,11 +181,11 @@ module T0 = struct
   ;;
 
   let many =
-    let rec loop t ~at_least ~at_most input ~pos acc =
-      match t input ~pos with
+    let rec loop t ~at_least ~at_most state ~pos acc =
+      match t state ~pos with
       | exception InternalParseError { pos = current_pos; message } ->
-        Input.ensure_can_backtrack
-          input
+        State.ensure_can_backtrack
+          state
           ~current_pos
           ~backtrack_to:pos
           ~message_on_error:message;
@@ -205,37 +205,37 @@ module T0 = struct
          | false ->
            (match at_most with
             | Some at_most when Queue.length acc = at_most -> new_pos, Queue.to_list acc
-            | _ -> loop t ~at_least ~at_most input ~pos:new_pos acc))
+            | _ -> loop t ~at_least ~at_most state ~pos:new_pos acc))
     in
     fun [@inline] t ~at_least ~at_most ->
       validate_repeated_args ~at_least ~at_most;
       match at_least, at_most with
       | 0, Some 0 -> return []
       | _ ->
-        let[@inline] run input ~pos =
-          loop t ~at_least ~at_most input ~pos (Queue.create ())
+        let[@inline] run state ~pos =
+          loop t ~at_least ~at_most state ~pos (Queue.create ())
         in
         run
   ;;
 
   let choices =
     let error_message = lazy "no matching choice" in
-    let rec loop ts input ~pos =
+    let rec loop ts state ~pos =
       match ts with
       | [] -> parse_error error_message ~pos
       | hd :: tl ->
-        (match hd input ~pos with
+        (match hd state ~pos with
          | exception InternalParseError { pos = current_pos; message } ->
-           Input.ensure_can_backtrack
-             input
+           State.ensure_can_backtrack
+             state
              ~current_pos
              ~backtrack_to:pos
              ~message_on_error:message;
-           loop tl input ~pos
+           loop tl state ~pos
          | new_pos, value -> new_pos, value)
     in
     fun [@inline] ts ->
-      let[@inline] run input ~pos = loop ts input ~pos in
+      let[@inline] run state ~pos = loop ts state ~pos in
       run
   ;;
 
@@ -263,7 +263,7 @@ module T0 = struct
   ;;
 
   let[@inline] fix fn =
-    let rec t = fun [@inline] input ~pos -> fn t input ~pos in
+    let rec t = fun [@inline] state ~pos -> fn t state ~pos in
     t
   ;;
 
@@ -280,22 +280,22 @@ module T0 = struct
   ;;
 
   let commit =
-    let[@inline] run input ~pos =
-      Input.commit_position input pos;
+    let[@inline] run state ~pos =
+      State.commit_position state pos;
       pos, ()
     in
     run
   ;;
 
   let at_end_of_input =
-    let[@inline] run input ~pos = pos, Input.length input = pos in
+    let[@inline] run state ~pos = pos, State.input_len state = pos in
     run
   ;;
 
   let end_of_input =
     let error_message = lazy "not at end of input" in
-    let[@inline] run input ~pos =
-      match pos < Input.length input with
+    let[@inline] run state ~pos =
+      match pos < State.input_len state with
       | true -> parse_error error_message ~pos
       | false -> pos, ()
     in
@@ -303,17 +303,17 @@ module T0 = struct
   ;;
 
   let[@inline] consumed_bytes t =
-    let[@inline] run input ~pos =
-      let new_pos, _ = t input ~pos in
-      new_pos, Input.slice input ~pos ~len:(new_pos - pos)
+    let[@inline] run state ~pos =
+      let new_pos, _ = t state ~pos in
+      new_pos, State.slice state ~pos ~len:(new_pos - pos)
     in
     run
   ;;
 
   let[@inline] value_and_consumed_bytes t =
-    let[@inline] run input ~pos =
-      let new_pos, value = t input ~pos in
-      new_pos, (value, Input.slice input ~pos ~len:(new_pos - pos))
+    let[@inline] run state ~pos =
+      let new_pos, value = t state ~pos in
+      new_pos, (value, State.slice state ~pos ~len:(new_pos - pos))
     in
     run
   ;;
@@ -327,11 +327,11 @@ module T0 = struct
   let insufficient_input_error = lazy "insufficient input"
 
   let peek1 =
-    let[@inline] run input ~pos =
+    let[@inline] run state ~pos =
       let value =
-        match pos >= Input.length input with
+        match pos >= State.input_len state with
         | true -> None
-        | false -> Some (Input.get input pos)
+        | false -> Some (State.get state pos)
       in
       pos, value
     in
@@ -339,9 +339,9 @@ module T0 = struct
   ;;
 
   let skip1 =
-    let[@inline] run input ~pos =
+    let[@inline] run state ~pos =
       let value =
-        match pos >= Input.length input with
+        match pos >= State.input_len state with
         | true -> parse_error insufficient_input_error ~pos
         | false -> ()
       in
@@ -351,11 +351,11 @@ module T0 = struct
   ;;
 
   let take1 =
-    let[@inline] run input ~pos =
+    let[@inline] run state ~pos =
       let value =
-        match pos >= Input.length input with
+        match pos >= State.input_len state with
         | true -> parse_error insufficient_input_error ~pos
-        | false -> Input.get input pos
+        | false -> State.get state pos
       in
       pos + 1, value
     in
@@ -364,11 +364,11 @@ module T0 = struct
 
   let[@inline] match1 value =
     let error_message = lazy [%string "expected character %{value#Char}"] in
-    let[@inline] run input ~pos =
-      match pos >= Input.length input with
+    let[@inline] run state ~pos =
+      match pos >= State.input_len state with
       | true -> parse_error insufficient_input_error ~pos
       | false ->
-        let chr = Input.get input pos in
+        let chr = State.get state pos in
         (match Char.( = ) chr value with
          | true -> pos + 1, value
          | false -> parse_error error_message ~pos)
@@ -379,11 +379,11 @@ module T0 = struct
   let take1_cond =
     let error_message = lazy "character did not satisfy condition" in
     fun [@inline] f ->
-      let[@inline] run input ~pos =
-        match pos >= Input.length input with
+      let[@inline] run state ~pos =
+        match pos >= State.input_len state with
         | true -> parse_error insufficient_input_error ~pos
         | false ->
-          let chr = Input.get input pos in
+          let chr = State.get state pos in
           (match f chr with
            | true -> pos + 1, chr
            | false -> parse_error error_message ~pos)
@@ -393,11 +393,11 @@ module T0 = struct
 
   let[@inline] peek ~len =
     validate_len_arg len;
-    let[@inline] run input ~pos =
+    let[@inline] run state ~pos =
       let value =
-        match pos + len > Input.length input with
+        match pos + len > State.input_len state with
         | true -> None
-        | false -> Some (Input.slice input ~pos ~len)
+        | false -> Some (State.slice state ~pos ~len)
       in
       pos, value
     in
@@ -406,9 +406,9 @@ module T0 = struct
 
   let[@inline] skip ~len =
     validate_len_arg len;
-    let[@inline] run input ~pos =
+    let[@inline] run state ~pos =
       let value =
-        match pos + len > Input.length input with
+        match pos + len > State.input_len state with
         | true -> parse_error insufficient_input_error ~pos
         | false -> ()
       in
@@ -421,12 +421,12 @@ module T0 = struct
 
   let[@inline] match_ value =
     let error_message = lazy [%string "expected string %{value}"] in
-    let[@inline] run input ~pos =
+    let[@inline] run state ~pos =
       let value_len = String.length value in
-      match pos + value_len > Input.length input with
+      match pos + value_len > State.input_len state with
       | true -> parse_error insufficient_input_error ~pos
       | false ->
-        let slice = Input.slice input ~pos ~len:value_len in
+        let slice = State.slice state ~pos ~len:value_len in
         (match String.( = ) slice value with
          | true -> pos + value_len, value
          | false -> parse_error error_message ~pos)
@@ -435,20 +435,20 @@ module T0 = struct
   ;;
 
   let skip_while =
-    let rec loop ~f ~at_least ~at_most input ~pos ~input_len acc ~error_expected_at_least =
+    let rec loop ~f ~at_least ~at_most state ~pos ~input_len acc ~error_expected_at_least =
       let bounds_ok = pos + acc < input_len in
       let at_most_ok =
         match at_most with
         | None -> true
         | Some at_most -> acc < at_most
       in
-      match bounds_ok && at_most_ok && f (Input.get input (pos + acc)) with
+      match bounds_ok && at_most_ok && f (State.get state (pos + acc)) with
       | true ->
         loop
           ~f
           ~at_least
           ~at_most
-          input
+          state
           ~pos
           ~input_len
           (acc + 1)
@@ -463,14 +463,14 @@ module T0 = struct
       let error_expected_at_least =
         lazy [%string "expected at least %{at_least#Int} matching chars"]
       in
-      let[@inline] run input ~pos =
+      let[@inline] run state ~pos =
         loop
           ~f
           ~at_least
           ~at_most
-          input
+          state
           ~pos
-          ~input_len:(Input.length input)
+          ~input_len:(State.input_len state)
           0
           ~error_expected_at_least
       in
@@ -482,22 +482,22 @@ module T0 = struct
   ;;
 
   let fold =
-    let rec loop acc ~f input ~pos =
-      match pos > Input.length input with
+    let rec loop acc ~f state ~pos =
+      match pos > State.input_len state with
       | true -> parse_error insufficient_input_error ~pos
       | false ->
         let peek =
-          match pos = Input.length input with
+          match pos = State.input_len state with
           | true -> `Eof
-          | false -> `Char (Input.get input pos)
+          | false -> `Char (State.get state pos)
         in
         (match f acc ~peek with
          | `Fail message -> parse_error message ~pos
          | `Return acc -> pos, acc
-         | `Advance acc -> loop acc ~f input ~pos:(pos + 1))
+         | `Advance acc -> loop acc ~f state ~pos:(pos + 1))
     in
     fun [@inline] ~init ~f ->
-      let[@inline] run input ~pos = loop init ~f input ~pos in
+      let[@inline] run state ~pos = loop init ~f state ~pos in
       run
   ;;
 
@@ -533,9 +533,9 @@ module T0 = struct
     let buf = Buffer.create initial_capacity in
     let emit char = Buffer.add_char buf char in
     let t : _ t = t ~emit in
-    let[@inline] run input ~pos =
+    let[@inline] run state ~pos =
       Buffer.clear buf;
-      let pos, () = t input ~pos in
+      let pos, () = t state ~pos in
       let output = Buffer.contents buf in
       pos, output
     in

@@ -153,7 +153,7 @@ let%expect_test "fold" =
          | true ->
            (match Char.to_int char = Char.to_int '0' + acc with
             | true -> `Advance (acc + 1)
-            | false -> `Fail [%string "Expected %{acc#Int}"])))
+            | false -> `Fail (lazy [%string "Expected %{acc#Int}"]))))
   in
   run t "01234" true [%sexp_of: int];
   [%expect {| 5 |}];

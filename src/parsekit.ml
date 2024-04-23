@@ -356,6 +356,7 @@ module T0 = struct
   ;;
 
   let[@inline] match1 value =
+    let error_message = lazy [%string "expected character %{value#Char}"] in
     let[@inline] run input ~pos =
       match pos >= Input.length input with
       | true -> raise @@ exn_insufficient_input ~pos
@@ -363,9 +364,7 @@ module T0 = struct
         let chr = Input.get input pos in
         (match Char.( = ) chr value with
          | true -> pos + 1, value
-         | false ->
-           raise
-             (ParseError { pos; message = [%string "expected character %{value#Char}"] }))
+         | false -> raise (ParseError { pos; message = force error_message }))
     in
     run
   ;;
@@ -413,6 +412,7 @@ module T0 = struct
   let[@inline] take ~len = consumed_bytes (skip ~len)
 
   let[@inline] match_ value =
+    let error_message = lazy [%string "expected string %{value}"] in
     let[@inline] run input ~pos =
       let value_len = String.length value in
       match pos + value_len > Input.length input with
@@ -421,14 +421,13 @@ module T0 = struct
         let slice = Input.slice input ~pos ~len:value_len in
         (match String.( = ) slice value with
          | true -> pos + value_len, value
-         | false ->
-           raise (ParseError { pos; message = [%string "expected string %{value}"] }))
+         | false -> raise (ParseError { pos; message = force error_message }))
     in
     run
   ;;
 
   let skip_while =
-    let rec loop ~f ~at_least ~at_most input ~pos ~input_len acc =
+    let rec loop ~f ~at_least ~at_most input ~pos ~input_len acc ~error_expected_at_least =
       let bounds_ok = pos + acc < input_len in
       let at_most_ok =
         match at_most with
@@ -436,21 +435,37 @@ module T0 = struct
         | Some at_most -> acc < at_most
       in
       match bounds_ok && at_most_ok && f (Input.get input (pos + acc)) with
-      | true -> loop ~f ~at_least ~at_most input ~pos ~input_len (acc + 1)
+      | true ->
+        loop
+          ~f
+          ~at_least
+          ~at_most
+          input
+          ~pos
+          ~input_len
+          (acc + 1)
+          ~error_expected_at_least
       | false ->
         (match acc < at_least with
          | true ->
-           raise
-             (ParseError
-                { pos = pos + acc
-                ; message = [%string "expected at least %{at_least#Int} matching chars"]
-                })
+           raise (ParseError { pos = pos + acc; message = force error_expected_at_least })
          | false -> pos + acc, ())
     in
     fun [@inline] ~f ~at_least ~at_most ->
       validate_repeated_args ~at_least ~at_most;
+      let error_expected_at_least =
+        lazy [%string "expected at least %{at_least#Int} matching chars"]
+      in
       let[@inline] run input ~pos =
-        loop ~f ~at_least ~at_most input ~pos ~input_len:(Input.length input) 0
+        loop
+          ~f
+          ~at_least
+          ~at_most
+          input
+          ~pos
+          ~input_len:(Input.length input)
+          0
+          ~error_expected_at_least
       in
       run
   ;;

@@ -37,15 +37,15 @@ module State : sig
   val input_len : t -> int
   val unsafe_get : t -> int -> char
   val slice : t -> pos:int -> len:int -> string
-
-  val ensure_can_backtrack
-    :  t
-    -> current_pos:int
-    -> backtrack_to:int
-    -> message_on_error:string Lazy.t
-    -> unit
-
   val commit_position : t -> int -> unit
+
+  val protect
+    :  t
+    -> pos:int
+    -> (unit -> int * 'a)
+    -> on_success:(pos:int -> 'a -> 'b)
+    -> on_parse_error:(pos:int -> message:string Lazy.t -> 'b)
+    -> 'b
 end = struct
   type t =
     { buf : string
@@ -89,6 +89,18 @@ end = struct
              (pos : int)]
      | false -> ());
     t.committed_bytes <- pos
+  ;;
+
+  let[@inline] protect t ~pos:old_pos f ~on_success ~on_parse_error =
+    match f () with
+    | exception InternalParseError { pos; message } ->
+      ensure_can_backtrack
+        t
+        ~current_pos:pos
+        ~backtrack_to:old_pos
+        ~message_on_error:message;
+      on_parse_error ~pos ~message
+    | pos, value -> on_success ~pos value
   ;;
 end
 
@@ -182,30 +194,28 @@ module T0 = struct
 
   let many =
     let rec loop t ~at_least ~at_most state ~pos acc =
-      match t state ~pos with
-      | exception InternalParseError { pos = current_pos; message } ->
-        State.ensure_can_backtrack
-          state
-          ~current_pos
-          ~backtrack_to:pos
-          ~message_on_error:message;
-        (match Queue.length acc < at_least with
-         | true ->
-           parse_error
-             (lazy [%string "not enough instances of `parser`: %{force message}"])
-             ~pos
-         | false -> pos, Queue.to_list acc)
-      | new_pos, value ->
-        Queue.enqueue acc value;
-        (* If we haven't made any progress through the input since last
-           time and we have enough values, stop here rather than keep
-           on going forever. *)
-        (match pos = new_pos && Queue.length acc >= at_least with
-         | true -> new_pos, Queue.to_list acc
-         | false ->
-           (match at_most with
-            | Some at_most when Queue.length acc = at_most -> new_pos, Queue.to_list acc
-            | _ -> loop t ~at_least ~at_most state ~pos:new_pos acc))
+      State.protect
+        state
+        ~pos
+        (fun [@inline] () -> t state ~pos)
+        ~on_parse_error:(fun [@inline] ~pos:_ ~message ->
+          match Queue.length acc < at_least with
+          | true ->
+            parse_error
+              (lazy [%string "not enough instances of `parser`: %{force message}"])
+              ~pos
+          | false -> pos, Queue.to_list acc)
+        ~on_success:(fun [@inline] ~pos:new_pos value ->
+          Queue.enqueue acc value;
+          (* If we haven't made any progress through the input since last
+             time and we have enough values, stop here rather than keep
+             on going forever. *)
+          match pos = new_pos && Queue.length acc >= at_least with
+          | true -> new_pos, Queue.to_list acc
+          | false ->
+            (match at_most with
+             | Some at_most when Queue.length acc = at_most -> new_pos, Queue.to_list acc
+             | _ -> loop t ~at_least ~at_most state ~pos:new_pos acc))
     in
     fun [@inline] t ~at_least ~at_most ->
       validate_repeated_args ~at_least ~at_most;
@@ -224,15 +234,12 @@ module T0 = struct
       match ts with
       | [] -> parse_error error_message ~pos
       | hd :: tl ->
-        (match hd state ~pos with
-         | exception InternalParseError { pos = current_pos; message } ->
-           State.ensure_can_backtrack
-             state
-             ~current_pos
-             ~backtrack_to:pos
-             ~message_on_error:message;
-           loop tl state ~pos
-         | new_pos, value -> new_pos, value)
+        State.protect
+          state
+          ~pos
+          (fun [@inline] () -> hd state ~pos)
+          ~on_parse_error:(fun [@inline] ~pos:_ ~message:_ -> loop tl state ~pos)
+          ~on_success:(fun [@inline] ~pos value -> pos, value)
     in
     fun [@inline] ts ->
       let[@inline] run state ~pos = loop ts state ~pos in

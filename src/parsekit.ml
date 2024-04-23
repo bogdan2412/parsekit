@@ -195,15 +195,21 @@ module T0 = struct
   ;;
 
   let[@inline] ( >> ) t1 t2 =
-    let%map.M _ = t1
-    and t2 = t2 in
-    t2
+    let[@inline] run state =
+      let _ = t1 state in
+      let t2 = t2 state in
+      t2
+    in
+    run
   ;;
 
   let[@inline] ( << ) t1 t2 =
-    let%map.M t1 = t1
-    and _ = t2 in
-    t1
+    let[@inline] run state =
+      let t1 = t1 state in
+      let _ = t2 state in
+      t1
+    in
+    run
   ;;
 
   let validate_repeated_args ~at_least ~at_most =

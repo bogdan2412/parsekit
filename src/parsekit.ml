@@ -149,13 +149,32 @@ let[@inline] bind t ~f =
 ;;
 
 module T0 = struct
-  module M = Monad.Make (struct
-      type nonrec 'a t = 'a t
+  module M = struct
+    include Monad.Make (struct
+        type nonrec 'a t = 'a t
 
-      let return = return
-      let bind = bind
-      let map = `Custom map
-    end)
+        let return = return
+        let bind = bind
+        let map = `Custom map
+      end)
+
+    module Let_syntax = struct
+      include Let_syntax
+
+      module Let_syntax = struct
+        include Let_syntax
+
+        let[@inline] both a b =
+          let[@inline] run state =
+            let a = a state in
+            let b = b state in
+            a, b
+          in
+          run
+        ;;
+      end
+    end
+  end
 
   include M
 

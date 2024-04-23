@@ -84,6 +84,15 @@ module type Combinators := sig
 
   val non_negative_integer : int t
   val integer : int t
+
+  (** More efficient API for constructing large strings by running parsers that
+      can emit characters into a buffer as they progress through the input.
+      Avoids the need to construct intermediate lists of characters or strings
+      that are then concatenated together. *)
+  val buffered_output
+    :  ?initial_capacity:int
+    -> (emit:(char -> unit) -> unit t)
+    -> string t
 end
 
 module type Parser := sig

@@ -68,101 +68,94 @@ module Parser = struct
   ;;
 
   let string =
-    let unicode_escaped_char =
-      let hex_digit =
-        match%bind take1 with
-        | '0' .. '9' as c -> return (Char.to_int c - Char.to_int '0')
-        | 'a' .. 'f' as c -> return (Char.to_int c - Char.to_int 'a' + 10)
-        | 'A' .. 'F' as c -> return (Char.to_int c - Char.to_int 'A' + 10)
-        | _ -> fail "non-hexadecimal character"
-      in
-      let utf16_low_surrogate =
-        let%bind a = match1 '\\' >> match1 'u' >> hex_digit
+    match1 '"'
+    >> buffered_output (fun ~emit ->
+      let emit' chr = emit (Char.unsafe_of_int chr) in
+      let unicode_escaped_char =
+        let hex_digit =
+          match%bind take1 with
+          | '0' .. '9' as c -> return (Char.to_int c - Char.to_int '0')
+          | 'a' .. 'f' as c -> return (Char.to_int c - Char.to_int 'a' + 10)
+          | 'A' .. 'F' as c -> return (Char.to_int c - Char.to_int 'A' + 10)
+          | _ -> fail "non-hexadecimal character"
+        in
+        let utf16_low_surrogate =
+          let%bind a = match1 '\\' >> match1 'u' >> hex_digit
+          and b = hex_digit
+          and c = hex_digit
+          and d = hex_digit in
+          let code = (a lsl 12) lor (b lsl 8) lor (c lsl 4) lor d in
+          if code >= 0xdc00 && code <= 0xdfff
+          then return code
+          else fail "Invalid UTF-16 surrogate pair sequence"
+        in
+        let utf16_pair ~high ~low =
+          0x10000 lor ((high - 0xd800) lsl 10) lor (low - 0xdc00)
+        in
+        let encode_utf8_one_byte code =
+          assert (code <= 0b01111111);
+          emit' code
+        in
+        let encode_utf8_two_bytes code =
+          assert (code lsr 6 <= 0b00011111);
+          emit' (0b11000000 lor (code lsr 6));
+          emit' (0b10000000 lor (code land 0b00111111))
+        in
+        let encode_utf8_three_bytes code =
+          assert (code lsr 12 <= 0b00001111);
+          emit' (0b11100000 lor (code lsr 12));
+          emit' (0b10000000 lor ((code lsr 6) land 0b00111111));
+          emit' (0b10000000 lor (code land 0b00111111))
+        in
+        let encode_utf8_four_bytes code =
+          assert (code lsr 18 <= 0b00000111);
+          emit' (0b11110000 lor (code lsr 18));
+          emit' (0b10000000 lor ((code lsr 12) land 0b00111111));
+          emit' (0b10000000 lor ((code lsr 6) land 0b00111111));
+          emit' (0b10000000 lor (code land 0b00111111))
+        in
+        let%bind a = match1 'u' >> hex_digit
         and b = hex_digit
         and c = hex_digit
         and d = hex_digit in
         let code = (a lsl 12) lor (b lsl 8) lor (c lsl 4) lor d in
-        if code >= 0xdc00 && code <= 0xdfff
-        then return code
-        else fail "Invalid UTF-16 surrogate pair sequence"
+        if code <= 0x007f
+        then return (encode_utf8_one_byte code)
+        else if code <= 0x07ff
+        then return (encode_utf8_two_bytes code)
+        else if code >= 0xd800 && code <= 0xdbff
+        then (
+          let%bind low = utf16_low_surrogate in
+          let code = utf16_pair ~high:code ~low in
+          return (encode_utf8_four_bytes code))
+        else return (encode_utf8_three_bytes code)
       in
-      let utf16_pair ~high ~low =
-        0x10000 lor ((high - 0xd800) lsl 10) lor (low - 0xdc00)
+      let escaped_char =
+        let map_emit chr (_ : char) = emit chr in
+        match1 '\\'
+        >> choices
+             [ match1 '"' >>| map_emit '"'
+             ; match1 '\\' >>| map_emit '\\'
+             ; match1 '/' >>| map_emit '/'
+             ; match1 'b' >>| map_emit '\b'
+             ; match1 'f' >>| map_emit '\x0c'
+             ; match1 'n' >>| map_emit '\n'
+             ; match1 'r' >>| map_emit '\r'
+             ; match1 't' >>| map_emit '\t'
+             ; unicode_escaped_char
+             ]
       in
-      let bytes_set buf index value = Bytes.set buf index (Char.unsafe_of_int value) in
-      let encode_utf8_one_byte code =
-        assert (code <= 0b01111111);
-        String.of_char (Char.unsafe_of_int code)
-      in
-      let encode_utf8_two_bytes =
-        let buf = Bytes.create 2 in
-        fun code ->
-          assert (code lsr 6 <= 0b00011111);
-          bytes_set buf 0 (0b11000000 lor (code lsr 6));
-          bytes_set buf 1 (0b10000000 lor (code land 0b00111111));
-          Bytes.to_string buf
-      in
-      let encode_utf8_three_bytes =
-        let buf = Bytes.create 3 in
-        fun code ->
-          assert (code lsr 12 <= 0b00001111);
-          bytes_set buf 0 (0b11100000 lor (code lsr 12));
-          bytes_set buf 1 (0b10000000 lor ((code lsr 6) land 0b00111111));
-          bytes_set buf 2 (0b10000000 lor (code land 0b00111111));
-          Bytes.to_string buf
-      in
-      let encode_utf8_four_bytes =
-        let buf = Bytes.create 4 in
-        fun code ->
-          assert (code lsr 18 <= 0b00000111);
-          bytes_set buf 0 (0b11110000 lor (code lsr 18));
-          bytes_set buf 1 (0b10000000 lor ((code lsr 12) land 0b00111111));
-          bytes_set buf 2 (0b10000000 lor ((code lsr 6) land 0b00111111));
-          bytes_set buf 3 (0b10000000 lor (code land 0b00111111));
-          Bytes.to_string buf
-      in
-      let%bind a = match1 'u' >> hex_digit
-      and b = hex_digit
-      and c = hex_digit
-      and d = hex_digit in
-      let code = (a lsl 12) lor (b lsl 8) lor (c lsl 4) lor d in
-      if code <= 0x007f
-      then return (encode_utf8_one_byte code)
-      else if code <= 0x07ff
-      then return (encode_utf8_two_bytes code)
-      else if code >= 0xd800 && code <= 0xdbff
-      then (
-        let%bind low = utf16_low_surrogate in
-        let code = utf16_pair ~high:code ~low in
-        return (encode_utf8_four_bytes code))
-      else return (encode_utf8_three_bytes code)
-    in
-    let escaped_char =
-      match1 '\\'
-      >> choices
-           [ match_ "\""
-           ; match_ "\\"
-           ; match_ "/"
-           ; match1 'b' >> return "\b"
-           ; match1 'f' >> return "\x0c"
-           ; match1 'n' >> return "\n"
-           ; match1 'r' >> return "\r"
-           ; match1 't' >> return "\t"
-           ; unicode_escaped_char
-           ]
-    in
-    match1 '"'
-    >> many
-         (choices
-            [ escaped_char
-            ; take1_cond (function
-                | '"' | '\\' | '\000' .. '\031' -> false
-                | _ -> true)
-              >>| String.of_char
-            ])
-         ~at_least:0
-         ~at_most:None
-    >>| String.concat ~sep:""
+      many
+        (choices
+           [ escaped_char
+           ; take1_cond (function
+               | '"' | '\\' | '\000' .. '\031' -> false
+               | _ -> true)
+             >>| emit
+           ])
+        ~at_least:0
+        ~at_most:None
+      >>| fun (_ : unit list) -> ())
     << match1 '"'
   ;;
 

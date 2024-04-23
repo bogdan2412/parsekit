@@ -439,22 +439,34 @@ module T0 = struct
 
   let[@inline] take ~len = consumed_bytes (skip ~len)
 
-  let[@inline] match_ value =
-    let error_message = lazy [%string "expected string %{value}"] in
-    let value_len = String.length value in
-    let[@inline] run state =
-      let pos = State.pos state in
-      match pos + value_len > State.input_len state with
-      | true -> parse_error insufficient_input_error state
+  let match_ =
+    let rec unsafe_equal_loop value ~value_pos ~value_len state ~error_message =
+      match value_pos = value_len with
+      | true -> value
       | false ->
-        let slice = State.slice state ~pos ~len:value_len in
-        (match String.( = ) slice value with
+        (match
+           Char.( = ) (State.unsafe_peek state) (String.unsafe_get value value_pos)
+         with
          | true ->
-           State.unsafe_advance_pos state ~by_:value_len;
-           value
+           State.unsafe_advance_pos state ~by_:1;
+           unsafe_equal_loop
+             value
+             ~value_pos:(value_pos + 1)
+             ~value_len
+             state
+             ~error_message
          | false -> parse_error error_message state)
     in
-    run
+    fun [@inline] value ->
+      let error_message = lazy [%string "expected string %{value}"] in
+      let value_len = String.length value in
+      let[@inline] run state =
+        let pos = State.pos state in
+        match pos + value_len > State.input_len state with
+        | true -> parse_error insufficient_input_error state
+        | false -> unsafe_equal_loop value ~value_pos:0 ~value_len state ~error_message
+      in
+      run
   ;;
 
   let skip_while =

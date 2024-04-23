@@ -1,0 +1,5 @@
+(executables
+ (names run_bench)
+ (libraries core_bench core_unix.command_unix json_parsekit)
+ (preprocess
+  (pps ppx_jane)))

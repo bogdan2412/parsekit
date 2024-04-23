@@ -1,0 +1,5 @@
+The set of benchmarks in this directory were obtained from
+[https://github.com/miloyip/nativejson-benchmark].
+
+[twitter-ascii.json], while not originally a part of the benchmark, is simply
+an ASCII encoded version of [twitter.json].

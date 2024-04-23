@@ -19,13 +19,13 @@ open! Base
 open! Import
 
 exception
-  ParseError of
+  InternalParseError of
     { pos : int
-    ; message : string
+    ; message : string Lazy.t
     }
 
 exception
-  CannotBacktrack of
+  ParseError of
     { pos : int
     ; message : string
     }
@@ -42,7 +42,7 @@ module Input : sig
     :  t
     -> current_pos:int
     -> backtrack_to:int
-    -> message_on_error:string
+    -> message_on_error:string Lazy.t
     -> unit
 
   val commit_position : t -> int -> unit
@@ -59,12 +59,12 @@ end = struct
 
   let[@cold] raise_cannot_backtrack ~current_pos ~backtrack_to ~committed_bytes ~message =
     raise
-      (CannotBacktrack
+      (ParseError
          { pos = current_pos
          ; message =
              [%string
                "parser cannot backtrack to position %{backtrack_to#Int}, it committed at \
-                position %{committed_bytes#Int}: %{message}"]
+                position %{committed_bytes#Int}: %{force message}"]
          })
   ;;
 
@@ -97,9 +97,11 @@ type 'a t = Input.t -> pos:int -> int * 'a
 let[@inline] run t buf ~require_input_entirely_consumed =
   let input = Input.create buf in
   match t input ~pos:0 with
-  | exception CannotBacktrack { pos; message } ->
+  | exception InternalParseError { pos; message } ->
     let backtrace = Backtrace.Exn.most_recent () in
-    Exn.raise_with_original_backtrace (ParseError { pos; message }) backtrace
+    Exn.raise_with_original_backtrace
+      (ParseError { pos; message = force message })
+      backtrace
   | pos, result ->
     (match require_input_entirely_consumed && pos < Input.length input with
      | true -> raise (ParseError { pos; message = "not at end of input" })
@@ -139,8 +141,15 @@ module T0 = struct
 
   include M
 
+  let[@inline] parse_error message ~pos = raise (InternalParseError { pos; message })
+
   let[@inline] fail message =
-    let[@inline] run (_ : Input.t) ~pos = raise (ParseError { pos; message }) in
+    let[@inline] run (_ : Input.t) ~pos = parse_error (lazy message) ~pos in
+    run
+  ;;
+
+  let[@inline] fail' message =
+    let[@inline] run (_ : Input.t) ~pos = parse_error message ~pos in
     run
   ;;
 
@@ -174,7 +183,7 @@ module T0 = struct
   let many =
     let rec loop t ~at_least ~at_most input ~pos acc =
       match t input ~pos with
-      | exception ParseError { pos = current_pos; message } ->
+      | exception InternalParseError { pos = current_pos; message } ->
         Input.ensure_can_backtrack
           input
           ~current_pos
@@ -182,11 +191,9 @@ module T0 = struct
           ~message_on_error:message;
         (match Queue.length acc < at_least with
          | true ->
-           raise
-             (ParseError
-                { pos
-                ; message = [%string "not enough instances of `parser`: %{message}"]
-                })
+           parse_error
+             (lazy [%string "not enough instances of `parser`: %{force message}"])
+             ~pos
          | false -> pos, Queue.to_list acc)
       | new_pos, value ->
         Queue.enqueue acc value;
@@ -212,12 +219,13 @@ module T0 = struct
   ;;
 
   let choices =
+    let error_message = lazy "no matching choice" in
     let rec loop ts input ~pos =
       match ts with
-      | [] -> raise (ParseError { pos; message = "no matching choice" })
+      | [] -> parse_error error_message ~pos
       | hd :: tl ->
         (match hd input ~pos with
-         | exception ParseError { pos = current_pos; message } ->
+         | exception InternalParseError { pos = current_pos; message } ->
            Input.ensure_can_backtrack
              input
              ~current_pos
@@ -285,9 +293,10 @@ module T0 = struct
   ;;
 
   let end_of_input =
+    let error_message = lazy "not at end of input" in
     let[@inline] run input ~pos =
       match pos < Input.length input with
-      | true -> raise (ParseError { pos; message = "not at end of input" })
+      | true -> parse_error error_message ~pos
       | false -> pos, ()
     in
     run
@@ -315,9 +324,7 @@ module T0 = struct
     | false -> ()
   ;;
 
-  let[@cold] exn_insufficient_input ~pos =
-    ParseError { pos; message = "insufficient input" }
-  ;;
+  let insufficient_input_error = lazy "insufficient input"
 
   let peek1 =
     let[@inline] run input ~pos =
@@ -335,7 +342,7 @@ module T0 = struct
     let[@inline] run input ~pos =
       let value =
         match pos >= Input.length input with
-        | true -> raise @@ exn_insufficient_input ~pos
+        | true -> parse_error insufficient_input_error ~pos
         | false -> ()
       in
       pos + 1, value
@@ -347,7 +354,7 @@ module T0 = struct
     let[@inline] run input ~pos =
       let value =
         match pos >= Input.length input with
-        | true -> raise @@ exn_insufficient_input ~pos
+        | true -> parse_error insufficient_input_error ~pos
         | false -> Input.get input pos
       in
       pos + 1, value
@@ -359,28 +366,29 @@ module T0 = struct
     let error_message = lazy [%string "expected character %{value#Char}"] in
     let[@inline] run input ~pos =
       match pos >= Input.length input with
-      | true -> raise @@ exn_insufficient_input ~pos
+      | true -> parse_error insufficient_input_error ~pos
       | false ->
         let chr = Input.get input pos in
         (match Char.( = ) chr value with
          | true -> pos + 1, value
-         | false -> raise (ParseError { pos; message = force error_message }))
+         | false -> parse_error error_message ~pos)
     in
     run
   ;;
 
-  let[@inline] take1_cond f =
-    let[@inline] run input ~pos =
-      match pos >= Input.length input with
-      | true -> raise @@ exn_insufficient_input ~pos
-      | false ->
-        let chr = Input.get input pos in
-        (match f chr with
-         | true -> pos + 1, chr
-         | false ->
-           raise (ParseError { pos; message = "character did not satisfy condition" }))
-    in
-    run
+  let take1_cond =
+    let error_message = lazy "character did not satisfy condition" in
+    fun [@inline] f ->
+      let[@inline] run input ~pos =
+        match pos >= Input.length input with
+        | true -> parse_error insufficient_input_error ~pos
+        | false ->
+          let chr = Input.get input pos in
+          (match f chr with
+           | true -> pos + 1, chr
+           | false -> parse_error error_message ~pos)
+      in
+      run
   ;;
 
   let[@inline] peek ~len =
@@ -401,7 +409,7 @@ module T0 = struct
     let[@inline] run input ~pos =
       let value =
         match pos + len > Input.length input with
-        | true -> raise @@ exn_insufficient_input ~pos
+        | true -> parse_error insufficient_input_error ~pos
         | false -> ()
       in
       pos + len, value
@@ -416,12 +424,12 @@ module T0 = struct
     let[@inline] run input ~pos =
       let value_len = String.length value in
       match pos + value_len > Input.length input with
-      | true -> raise @@ exn_insufficient_input ~pos
+      | true -> parse_error insufficient_input_error ~pos
       | false ->
         let slice = Input.slice input ~pos ~len:value_len in
         (match String.( = ) slice value with
          | true -> pos + value_len, value
-         | false -> raise (ParseError { pos; message = force error_message }))
+         | false -> parse_error error_message ~pos)
     in
     run
   ;;
@@ -447,8 +455,7 @@ module T0 = struct
           ~error_expected_at_least
       | false ->
         (match acc < at_least with
-         | true ->
-           raise (ParseError { pos = pos + acc; message = force error_expected_at_least })
+         | true -> parse_error error_expected_at_least ~pos:(pos + acc)
          | false -> pos + acc, ())
     in
     fun [@inline] ~f ~at_least ~at_most ->
@@ -477,7 +484,7 @@ module T0 = struct
   let fold =
     let rec loop acc ~f input ~pos =
       match pos > Input.length input with
-      | true -> raise @@ exn_insufficient_input ~pos
+      | true -> parse_error insufficient_input_error ~pos
       | false ->
         let peek =
           match pos = Input.length input with
@@ -485,7 +492,7 @@ module T0 = struct
           | false -> `Char (Input.get input pos)
         in
         (match f acc ~peek with
-         | `Fail message -> raise (ParseError { pos; message })
+         | `Fail message -> parse_error message ~pos
          | `Return acc -> pos, acc
          | `Advance acc -> loop acc ~f input ~pos:(pos + 1))
     in

@@ -23,6 +23,7 @@ module type Combinators := sig
 
   val return : 'a -> 'a t
   val fail : string -> _ t
+  val fail' : string Lazy.t -> _ t
 
   (** Combinators *)
 
@@ -71,7 +72,7 @@ module type Combinators := sig
     -> f:
          ('acc
           -> peek:[ `Char of char | `Eof ]
-          -> [ `Fail of string | `Return of 'acc | `Advance of 'acc ])
+          -> [ `Fail of string Lazy.t | `Return of 'acc | `Advance of 'acc ])
     -> 'acc t
 
   (** Matches any amount of whitespace characters, defined as one of [' '; '\t';

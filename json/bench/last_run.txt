@@ -1,0 +1,12 @@
+Tue Apr 23 09:23:32 AM BST 2024
+Estimated testing time 40s (4 benchmarks x 10s). Change using '-quota'.
+┌────────────────────┬──────────┬─────────┬────────────┬────────────┬────────────┐
+│ Name               │ Time/Run │ mWd/Run │   mjWd/Run │   Prom/Run │ Percentage │
+├────────────────────┼──────────┼─────────┼────────────┼────────────┼────────────┤
+│ canada.json        │ 171.01ms │ 82.30Mw │ 1_300.40kw │ 1_187.20kw │    100.00% │
+│ citm_catalog.json  │  88.35ms │ 32.50Mw │   473.56kw │   473.56kw │     51.66% │
+│ twitter-ascii.json │  77.79ms │ 26.82Mw │   265.51kw │   265.51kw │     45.49% │
+│ twitter.json       │  63.81ms │ 19.79Mw │   438.43kw │   356.35kw │     37.31% │
+└────────────────────┴──────────┴─────────┴────────────┴────────────┴────────────┘
+Benchmarks that take 1ns to 100ms can be estimated precisely. For more reliable 
+estimates, redesign your benchmark to have a shorter execution time.

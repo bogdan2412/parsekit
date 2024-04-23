@@ -1,10 +1,10 @@
-Tue Apr 23 05:15:48 PM BST 2024
+Tue Apr 23 06:09:19 PM BST 2024
 Estimated testing time 40s (4 benchmarks x 10s). Change using '-quota'.
 ┌────────────────────┬──────────┬─────────┬────────────┬────────────┬────────────┐
 │ Name               │ Time/Run │ mWd/Run │   mjWd/Run │   Prom/Run │ Percentage │
 ├────────────────────┼──────────┼─────────┼────────────┼────────────┼────────────┤
-│ canada.json        │  76.76ms │ 16.38Mw │ 1_175.94kw │ 1_062.74kw │    100.00% │
-│ citm_catalog.json  │  40.96ms │  7.95Mw │   374.18kw │   374.18kw │     53.37% │
-│ twitter-ascii.json │  29.46ms │  8.35Mw │   187.03kw │   187.03kw │     38.39% │
-│ twitter.json       │  26.31ms │  5.70Mw │   263.92kw │   181.84kw │     34.27% │
+│ canada.json        │  70.15ms │  7.74Mw │ 1_174.34kw │ 1_061.14kw │    100.00% │
+│ citm_catalog.json  │  36.02ms │  4.95Mw │   371.99kw │   371.99kw │     51.34% │
+│ twitter-ascii.json │  25.97ms │  5.92Mw │   182.26kw │   182.26kw │     37.02% │
+│ twitter.json       │  23.93ms │  4.58Mw │   262.05kw │   179.97kw │     34.11% │
 └────────────────────┴──────────┴─────────┴────────────┴────────────┴────────────┘

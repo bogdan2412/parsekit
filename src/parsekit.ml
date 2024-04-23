@@ -35,7 +35,7 @@ module State : sig
 
   val create : string -> t
   val input_len : t -> int
-  val get : t -> int -> char
+  val unsafe_get : t -> int -> char
   val slice : t -> pos:int -> len:int -> string
 
   val ensure_can_backtrack
@@ -54,7 +54,7 @@ end = struct
 
   let create buf = { buf; committed_bytes = 0 }
   let input_len t = String.length t.buf
-  let get t pos = String.get t.buf pos
+  let unsafe_get t pos = String.unsafe_get t.buf pos
   let slice t ~pos ~len = String.sub t.buf ~pos ~len
 
   let[@cold] raise_cannot_backtrack ~current_pos ~backtrack_to ~committed_bytes ~message =
@@ -331,7 +331,7 @@ module T0 = struct
       let value =
         match pos >= State.input_len state with
         | true -> None
-        | false -> Some (State.get state pos)
+        | false -> Some (State.unsafe_get state pos)
       in
       pos, value
     in
@@ -355,7 +355,7 @@ module T0 = struct
       let value =
         match pos >= State.input_len state with
         | true -> parse_error insufficient_input_error ~pos
-        | false -> State.get state pos
+        | false -> State.unsafe_get state pos
       in
       pos + 1, value
     in
@@ -368,7 +368,7 @@ module T0 = struct
       match pos >= State.input_len state with
       | true -> parse_error insufficient_input_error ~pos
       | false ->
-        let chr = State.get state pos in
+        let chr = State.unsafe_get state pos in
         (match Char.( = ) chr value with
          | true -> pos + 1, value
          | false -> parse_error error_message ~pos)
@@ -383,7 +383,7 @@ module T0 = struct
         match pos >= State.input_len state with
         | true -> parse_error insufficient_input_error ~pos
         | false ->
-          let chr = State.get state pos in
+          let chr = State.unsafe_get state pos in
           (match f chr with
            | true -> pos + 1, chr
            | false -> parse_error error_message ~pos)
@@ -442,7 +442,7 @@ module T0 = struct
         | None -> true
         | Some at_most -> acc < at_most
       in
-      match bounds_ok && at_most_ok && f (State.get state (pos + acc)) with
+      match bounds_ok && at_most_ok && f (State.unsafe_get state (pos + acc)) with
       | true ->
         loop
           ~f
@@ -489,7 +489,7 @@ module T0 = struct
         let peek =
           match pos = State.input_len state with
           | true -> `Eof
-          | false -> `Char (State.get state pos)
+          | false -> `Char (State.unsafe_get state pos)
         in
         (match f acc ~peek with
          | `Fail message -> parse_error message ~pos

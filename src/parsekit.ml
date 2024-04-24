@@ -506,30 +506,31 @@ module T0 = struct
   ;;
 
   let skip_while =
-    let rec loop
-      ~f
-      ~at_least
-      ~at_most
-      state
-      ~input_len
-      ~start_pos
-      ~error_expected_at_least
-      =
-      let pos = State.pos state in
-      let bounds_ok = pos < input_len in
-      let at_most_ok =
-        match at_most with
-        | None -> true
-        | Some at_most -> pos - start_pos < at_most
-      in
-      match bounds_ok && at_most_ok && f (State.unsafe_peek state) with
-      | true ->
-        State.unsafe_advance_pos state ~by_:1;
-        loop ~f ~at_least ~at_most state ~input_len ~start_pos ~error_expected_at_least
-      | false ->
-        (match pos - start_pos < at_least with
-         | true -> parse_error error_expected_at_least state
-         | false -> ())
+    let[@inline] loop ~f ~at_least ~at_most state ~error_expected_at_least =
+      let start_pos = State.pos state in
+      let input_len = State.input_len state in
+      while
+        let pos = State.pos state in
+        let bounds_ok = pos < input_len in
+        let at_most_ok =
+          match at_most with
+          | None -> true
+          | Some at_most -> pos - start_pos < at_most
+        in
+        let continue =
+          match bounds_ok && at_most_ok && f (State.unsafe_peek state) with
+          | true ->
+            State.unsafe_advance_pos state ~by_:1;
+            true
+          | false ->
+            (match pos - start_pos < at_least with
+             | true -> parse_error error_expected_at_least state
+             | false -> false)
+        in
+        continue
+      do
+        ()
+      done
     in
     fun [@inline] ~f ~at_least ~at_most ->
       validate_repeated_args ~at_least ~at_most;
@@ -537,15 +538,7 @@ module T0 = struct
         lazy [%string "expected at least %{at_least#Int} matching chars"]
       in
       let[@inline] run state =
-        let start_pos = State.pos state in
-        loop
-          ~f
-          ~at_least
-          ~at_most
-          state
-          ~input_len:(State.input_len state)
-          ~start_pos
-          ~error_expected_at_least
+        loop ~f ~at_least ~at_most state ~error_expected_at_least
       in
       run
   ;;

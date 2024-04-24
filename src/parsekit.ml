@@ -228,37 +228,47 @@ module T0 = struct
   ;;
 
   let many =
-    let rec loop t ~at_least ~at_most state ~so_far values_rev =
-      let start_pos = State.pos state in
-      State.protect
-        state
-        (fun [@inline] () -> t state)
-        ~on_parse_error:(fun [@inline] ~message ->
-          match so_far < at_least with
-          | true ->
-            parse_error
-              (lazy [%string "not enough instances of `parser`: %{force message}"])
-              state
-          | false -> List.rev values_rev)
-        ~on_success:(fun [@inline] value ->
-          let so_far = so_far + 1 in
-          let values_rev = value :: values_rev in
-          (* If we haven't made any progress through the input since last
-             time and we have enough values, stop here rather than keep
-             on going forever. *)
-          match State.pos state = start_pos && so_far >= at_least with
-          | true -> List.rev values_rev
-          | false ->
-            (match at_most with
-             | Some at_most when so_far = at_most -> List.rev values_rev
-             | _ -> loop t ~at_least ~at_most state ~so_far values_rev))
+    let[@inline] loop t ~at_least ~at_most state =
+      let so_far = ref 0 in
+      let values_rev = ref [] in
+      while
+        let start_pos = State.pos state in
+        let continue =
+          State.protect
+            state
+            (fun [@inline] () -> t state)
+            ~on_parse_error:(fun [@inline] ~message ->
+              match !so_far < at_least with
+              | true ->
+                parse_error
+                  (lazy [%string "not enough instances of `parser`: %{force message}"])
+                  state
+              | false -> false)
+            ~on_success:(fun [@inline] value ->
+              Int.incr so_far;
+              values_rev := value :: !values_rev;
+              (* If we haven't made any progress through the input since last
+                 time and we have enough values, stop here rather than keep
+                 on going forever. *)
+              match State.pos state = start_pos && !so_far >= at_least with
+              | true -> false
+              | false ->
+                (match at_most with
+                 | Some at_most when !so_far = at_most -> false
+                 | _ -> true))
+        in
+        continue
+      do
+        ()
+      done;
+      List.rev !values_rev
     in
     fun [@inline] t ~at_least ~at_most ->
       validate_repeated_args ~at_least ~at_most;
       match at_least, at_most with
       | 0, Some 0 -> return []
       | _ ->
-        let[@inline] run state = loop t ~at_least ~at_most state ~so_far:0 [] in
+        let[@inline] run state = loop t ~at_least ~at_most state in
         run
   ;;
 

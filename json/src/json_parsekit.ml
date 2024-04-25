@@ -145,7 +145,7 @@ module Parser = struct
              ; unicode_escaped_char
              ]
       in
-      many
+      skip_many
         (choices
            [ escaped_char
            ; take1_cond (function
@@ -154,8 +154,7 @@ module Parser = struct
              >>| emit
            ])
         ~at_least:0
-        ~at_most:None
-      >>| fun (_ : unit list) -> ())
+        ~at_most:None)
     << match1 '"'
   ;;
 

@@ -33,7 +33,7 @@ module type Combinators := sig
   val ( << ) : 'a t -> 'b t -> 'a t
   val many : 'a t -> at_least:int -> at_most:int option -> 'a list t
   val sep_by : 'a t -> sep:_ t -> at_least:int -> at_most:int option -> 'a list t
-  val fix : ('a t -> 'a t) -> 'a t
+  val fix : max_recursion_depth:int -> ('a t -> 'a t) -> 'a t
 
   (** Alternatives *)
 

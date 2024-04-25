@@ -76,6 +76,12 @@ module type Combinators := sig
           -> [ `Fail of string Lazy.t | `Return of 'acc | `Advance of 'acc ])
     -> 'acc t
 
+  val foldn
+    :  n:int
+    -> init:'acc
+    -> f:('acc -> char -> ('acc, string Lazy.t) Result.t)
+    -> 'acc t
+
   (** Matches any amount of whitespace characters, defined as one of [' '; '\t';
     '\n'; '\r'] *)
   val whitespace0 : unit t

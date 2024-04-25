@@ -114,7 +114,7 @@ module Parser = struct
           emit' (0b10000000 lor ((code lsr 6) land 0b00111111));
           emit' (0b10000000 lor (code land 0b00111111))
         in
-        let%bind a = match1 'u' >> hex_digit
+        let%bind a = hex_digit
         and b = hex_digit
         and c = hex_digit
         and d = hex_digit in
@@ -131,28 +131,30 @@ module Parser = struct
         else return (encode_utf8_three_bytes code)
       in
       let escaped_char =
-        let map_emit chr (_ : char) = emit chr in
-        match1 '\\'
-        >> choices
-             [ match1 '"' >>| map_emit '"'
-             ; match1 '\\' >>| map_emit '\\'
-             ; match1 '/' >>| map_emit '/'
-             ; match1 'b' >>| map_emit '\b'
-             ; match1 'f' >>| map_emit '\x0c'
-             ; match1 'n' >>| map_emit '\n'
-             ; match1 'r' >>| map_emit '\r'
-             ; match1 't' >>| map_emit '\t'
-             ; unicode_escaped_char
-             ]
+        let emit_m chr =
+          emit chr;
+          return ()
+        in
+        match%bind take1 with
+        | '"' -> emit_m '"'
+        | '\\' -> emit_m '\\'
+        | '/' -> emit_m '/'
+        | 'b' -> emit_m '\b'
+        | 'f' -> emit_m '\x0c'
+        | 'n' -> emit_m '\n'
+        | 'r' -> emit_m '\r'
+        | 't' -> emit_m '\t'
+        | 'u' -> unicode_escaped_char
+        | _ -> fail "unexpected escaped character"
       in
       skip_many
-        (choices
-           [ escaped_char
-           ; take1_cond (function
-               | '"' | '\\' | '\000' .. '\031' -> false
-               | _ -> true)
-             >>| emit
-           ])
+        (match%bind take1 with
+         | '\\' -> escaped_char
+         | '"' -> fail "end of string"
+         | '\000' .. '\031' -> fail "control character"
+         | char ->
+           emit char;
+           return ())
         ~at_least:0
         ~at_most:None)
     << match1 '"'
@@ -191,12 +193,20 @@ module Parser = struct
       dictionary' ~key:string ~data:json >>| fun value -> Dictionary value
     in
     let null = null >>| fun () -> Null in
-    let bool = bool >>| fun value -> Bool value in
+    let true_ = match_ "true" >> return (Bool true) in
+    let false_ = match_ "false" >> return (Bool false) in
     let number = number >>| fun value -> Number value in
     let string = string >>| fun value -> String value in
     whitespace0
     >> fix ~max_recursion_depth:30_000 (fun json ->
-      choices [ null; bool; number; string; list json; dictionary json ])
+      match%bind peek1 with
+      | Some 'n' -> null
+      | Some 't' -> true_
+      | Some 'f' -> false_
+      | Some '"' -> string
+      | Some '[' -> list json
+      | Some '{' -> dictionary json
+      | _ -> number)
     << whitespace0
   ;;
 

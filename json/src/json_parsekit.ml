@@ -38,33 +38,34 @@ module Parser = struct
     | _ -> false
   ;;
 
-  let is_non_zero_digit = function
-    | '1' .. '9' -> true
-    | _ -> false
-  ;;
-
   let number =
-    let optional parser = choices [ parser >> return (); return () ] in
-    let sign = optional (match1 '-') in
+    let sign =
+      match%bind peek1 with
+      | Some '-' -> skip1
+      | _ -> return ()
+    in
     let non_negative_integer =
-      choices
-        [ match1 '0' >> return ()
-        ; take1_cond is_non_zero_digit >> skip_while ~f:is_digit ~at_least:0 ~at_most:None
-        ]
+      match%bind take1 with
+      | '0' -> return ()
+      | '1' .. '9' -> skip_while ~f:is_digit ~at_least:0 ~at_most:None
+      | _ -> fail "not a number"
     in
-    let frac = match1 '.' >> skip_while ~f:is_digit ~at_least:1 ~at_most:None in
+    let frac =
+      match%bind peek1 with
+      | Some '.' -> skip1 >> skip_while ~f:is_digit ~at_least:1 ~at_most:None
+      | _ -> return ()
+    in
     let exp =
-      take1_cond (function
-        | 'e' | 'E' -> true
-        | _ -> false)
-      >> optional
-           (take1_cond (function
-             | '-' | '+' -> true
-             | _ -> false))
-      >> skip_while ~f:is_digit ~at_least:1 ~at_most:None
+      match%bind peek1 with
+      | Some ('e' | 'E') ->
+        skip1
+        >> (match%bind peek1 with
+            | Some ('-' | '+') -> skip1
+            | _ -> return ())
+        >> skip_while ~f:is_digit ~at_least:1 ~at_most:None
+      | _ -> return ()
     in
-    consumed_bytes (sign >> non_negative_integer >> optional frac >> optional exp)
-    >>| Float.of_string
+    consumed_bytes (sign >> non_negative_integer >> frac >> exp) >>| Float.of_string
   ;;
 
   let string =

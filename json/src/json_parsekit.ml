@@ -72,19 +72,17 @@ module Parser = struct
     >> buffered_output (fun [@inline] ~emit ->
       let emit' chr = emit (Char.unsafe_of_int chr) in
       let unicode_escaped_char =
-        let hex_digit =
-          match%bind take1 with
-          | '0' .. '9' as c -> return (Char.to_int c - Char.to_int '0')
-          | 'a' .. 'f' as c -> return (Char.to_int c - Char.to_int 'a' + 10)
-          | 'A' .. 'F' as c -> return (Char.to_int c - Char.to_int 'A' + 10)
-          | _ -> fail "non-hexadecimal character"
+        let hex_4_digit_code =
+          foldn ~n:4 ~init:0 ~f:(fun [@inline] acc c ->
+            let[@inline] ok value = Ok ((acc lsl 4) lor value) in
+            match c with
+            | '0' .. '9' as c -> ok (Char.to_int c - Char.to_int '0')
+            | 'a' .. 'f' as c -> ok (Char.to_int c - Char.to_int 'a' + 10)
+            | 'A' .. 'F' as c -> ok (Char.to_int c - Char.to_int 'A' + 10)
+            | _ -> Error (lazy "non-hexadecimal character"))
         in
         let utf16_low_surrogate =
-          let%bind a = match1 '\\' >> match1 'u' >> hex_digit
-          and b = hex_digit
-          and c = hex_digit
-          and d = hex_digit in
-          let code = (a lsl 12) lor (b lsl 8) lor (c lsl 4) lor d in
+          let%bind code = match1 '\\' >> match1 'u' >> hex_4_digit_code in
           if code >= 0xdc00 && code <= 0xdfff
           then return code
           else fail "Invalid UTF-16 surrogate pair sequence"
@@ -114,11 +112,7 @@ module Parser = struct
           emit' (0b10000000 lor ((code lsr 6) land 0b00111111));
           emit' (0b10000000 lor (code land 0b00111111))
         in
-        let%bind a = hex_digit
-        and b = hex_digit
-        and c = hex_digit
-        and d = hex_digit in
-        let code = (a lsl 12) lor (b lsl 8) lor (c lsl 4) lor d in
+        let%bind code = hex_4_digit_code in
         if code <= 0x007f
         then return (encode_utf8_one_byte code)
         else if code <= 0x07ff

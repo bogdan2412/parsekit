@@ -609,6 +609,26 @@ module T0 = struct
       run
   ;;
 
+  let foldn =
+    let rec loop ~left acc ~f state =
+      match left with
+      | 0 -> acc
+      | _ ->
+        (match f acc (State.unsafe_peek state) with
+         | Error message -> parse_error message state
+         | Ok acc ->
+           State.unsafe_advance_pos state ~by_:1;
+           loop ~left:(left - 1) acc ~f state)
+    in
+    fun [@inline] ~n ~init ~f ->
+      let[@inline] run state =
+        match State.pos state + n > State.input_len state with
+        | true -> parse_error insufficient_input_error state
+        | false -> loop ~left:n init ~f state
+      in
+      run
+  ;;
+
   let[@inline] is_whitespace = function
     | ' ' | '\t' | '\n' | '\r' -> true
     | _ -> false

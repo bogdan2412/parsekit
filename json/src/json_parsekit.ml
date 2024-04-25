@@ -69,7 +69,7 @@ module Parser = struct
 
   let string =
     match1 '"'
-    >> buffered_output (fun ~emit ->
+    >> buffered_output (fun [@inline] ~emit ->
       let emit' chr = emit (Char.unsafe_of_int chr) in
       let unicode_escaped_char =
         let hex_digit =

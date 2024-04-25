@@ -254,7 +254,9 @@ let%expect_test "commit avoids exponential glob implementation behaviour" =
        non-matching input below and result in this test not terminating in a
        reasonable amount of time. *)
     List.fold (List.init 7 ~f:Fn.id) ~init:(match_ "b") ~f:(fun acc (_ : int) ->
-      match_ "a" >> commit >> fix (fun glob -> choices [ acc; take ~len:1 >> glob ]))
+      match_ "a"
+      >> commit
+      >> fix ~max_recursion_depth:1_000 (fun glob -> choices [ acc; take ~len:1 >> glob ]))
     |> consumed_bytes
   in
   let str = String.init 60 ~f:(Fn.const 'a') in
@@ -344,8 +346,8 @@ let%expect_test "fix" =
       | List of t list
     [@@deriving sexp_of]
   end in
-  let json =
-    fix (fun json ->
+  let json' ~max_recursion_depth =
+    fix ~max_recursion_depth (fun json ->
       choices
         [ (let%map string = simple_double_quoted_string in
            String string)
@@ -355,6 +357,7 @@ let%expect_test "fix" =
            List list)
         ])
   in
+  let json = json' ~max_recursion_depth:1_000 in
   let sexp_of = [%sexp_of: t] in
   run json {|"abcd"|} true sexp_of;
   [%expect {| (String abcd) |}];
@@ -366,7 +369,29 @@ let%expect_test "fix" =
   [%expect {| (List ((String abcd) (String efg) (Int 89))) |}];
   run json {|[ "abcd", "efg", 89, [ 10, 11, 12 ] ]|} true sexp_of;
   [%expect
-    {| 
+    {|
+    (List
+     ((String abcd) (String efg) (Int 89) (List ((Int 10) (Int 11) (Int 12))))) |}];
+  let json = json' ~max_recursion_depth:0 in
+  run json {|"abcd"|} true sexp_of;
+  [%expect {| (String abcd) |}];
+  run json "1234" true sexp_of;
+  [%expect {| (Int 1234) |}];
+  show_raise (fun () -> run json "[]" true sexp_of);
+  [%expect
+    {| (raised ("Parsekit.ParseError(1, \"maximum recursion depth exceeded\")")) |}];
+  let json = json' ~max_recursion_depth:1 in
+  run json "[]" true sexp_of;
+  [%expect {| (List ()) |}];
+  run json {|[ "abcd", "efg", 89 ]|} true sexp_of;
+  [%expect {| (List ((String abcd) (String efg) (Int 89))) |}];
+  show_raise (fun () -> run json {|[ "abcd", "efg", 89, [ 10, 11, 12 ] ]|} true sexp_of);
+  [%expect
+    {| (raised ("Parsekit.ParseError(23, \"maximum recursion depth exceeded\")")) |}];
+  let json = json' ~max_recursion_depth:2 in
+  run json {|[ "abcd", "efg", 89, [ 10, 11, 12 ] ]|} true sexp_of;
+  [%expect
+    {|
     (List
      ((String abcd) (String efg) (Int 89) (List ((Int 10) (Int 11) (Int 12))))) |}]
 ;;

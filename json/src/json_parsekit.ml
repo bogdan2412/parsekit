@@ -196,7 +196,7 @@ module Parser = struct
     let number = number >>| fun value -> Number value in
     let string = string >>| fun value -> String value in
     whitespace0
-    >> fix (fun json ->
+    >> fix ~max_recursion_depth:30_000 (fun json ->
       choices [ null; bool; number; string; list json; dictionary json ])
     << whitespace0
   ;;

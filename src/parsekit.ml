@@ -312,16 +312,33 @@ module T0 = struct
        | _ -> at_least_one)
   ;;
 
-  let[@inline] fix fn =
+  let[@inline] fix ~max_recursion_depth fn =
     let rec t =
       let cache = ref None in
+      let recursion_depth = ref 0 in
       let[@inline] run state =
-        match !cache with
-        | Some parser -> parser state
-        | None ->
-          let parser = fn t in
-          cache := Some parser;
-          parser state
+        match !recursion_depth > max_recursion_depth with
+        | true ->
+          recursion_depth := 0;
+          raise
+            (ParseError
+               { pos = State.pos state; message = "maximum recursion depth exceeded" })
+        | false ->
+          Int.incr recursion_depth;
+          (match
+             match !cache with
+             | Some parser -> parser state
+             | None ->
+               let parser = fn t in
+               cache := Some parser;
+               parser state
+           with
+           | exception (InternalParseError _ as exn) ->
+             Int.decr recursion_depth;
+             Exn.raise_with_original_backtrace exn (Backtrace.Exn.most_recent ())
+           | value ->
+             Int.decr recursion_depth;
+             value)
       in
       run
     in

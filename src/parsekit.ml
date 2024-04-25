@@ -227,10 +227,10 @@ module T0 = struct
     | _ -> ()
   ;;
 
-  let many =
-    let[@inline] loop t ~at_least ~at_most state =
+  let skip_many, many =
+    let[@inline] loop t ~at_least ~at_most ~init ~accum state =
       let so_far = ref 0 in
-      let values_rev = ref [] in
+      let acc = ref init in
       while
         let start_pos = State.pos state in
         let continue =
@@ -246,7 +246,7 @@ module T0 = struct
               | false -> false)
             ~on_success:(fun [@inline] value ->
               Int.incr so_far;
-              values_rev := value :: !values_rev;
+              acc := accum !acc value;
               (* If we haven't made any progress through the input since last
                  time and we have enough values, stop here rather than keep
                  on going forever. *)
@@ -261,15 +261,37 @@ module T0 = struct
       do
         ()
       done;
-      List.rev !values_rev
+      !acc
     in
-    fun [@inline] t ~at_least ~at_most ->
+    let[@inline] many_gen t ~at_least ~at_most ~init ~accum ~finalize =
       validate_repeated_args ~at_least ~at_most;
       match at_least, at_most with
-      | 0, Some 0 -> return []
+      | 0, Some 0 -> return init
       | _ ->
-        let[@inline] run state = loop t ~at_least ~at_most state in
+        let[@inline] run state =
+          loop t ~at_least ~at_most ~init ~accum state |> finalize
+        in
         run
+    in
+    let[@inline] skip_many t ~at_least ~at_most =
+      many_gen
+        t
+        ~at_least
+        ~at_most
+        ~init:()
+        ~accum:(fun [@inline] () _ -> ())
+        ~finalize:Fn.id
+    in
+    let[@inline] many t ~at_least ~at_most =
+      many_gen
+        t
+        ~at_least
+        ~at_most
+        ~init:[]
+        ~accum:(fun [@inline] acc value -> value :: acc)
+        ~finalize:List.rev
+    in
+    skip_many, many
   ;;
 
   let choices =

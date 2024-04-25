@@ -31,6 +31,7 @@ module type Combinators := sig
   val map : 'a t -> f:('a -> 'b) -> 'b t
   val ( >> ) : 'a t -> 'b t -> 'b t
   val ( << ) : 'a t -> 'b t -> 'a t
+  val skip_many : 'a t -> at_least:int -> at_most:int option -> unit t
   val many : 'a t -> at_least:int -> at_most:int option -> 'a list t
   val sep_by : 'a t -> sep:_ t -> at_least:int -> at_most:int option -> 'a list t
   val fix : max_recursion_depth:int -> ('a t -> 'a t) -> 'a t

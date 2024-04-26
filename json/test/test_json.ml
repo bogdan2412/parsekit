@@ -72,7 +72,7 @@ let%expect_test "Data type examples" =
       (two_byte_utf8 (String "\194\188 \200\153"))
       (utf8_boundaries
        (String
-        "\000 \127 \194\128 \223\191 \224\160\128 \239\191\191 \240\144\128\128 \243\191\191\191")))) |}];
+        "\000 \127 \194\128 \223\191 \224\160\128 \239\191\191 \240\144\128\128 \244\143\191\191")))) |}];
   print_endline (Json.dictionary_member_exn t ~key:"single_byte_utf8" |> Json.string_exn);
   print_endline (Json.dictionary_member_exn t ~key:"two_byte_utf8" |> Json.string_exn);
   print_endline (Json.dictionary_member_exn t ~key:"three_byte_utf8" |> Json.string_exn);

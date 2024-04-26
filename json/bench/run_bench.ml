@@ -8,7 +8,7 @@ let make_bench ~name ~path =
 ;;
 
 let main () =
-  let bench_suite =
+  let nativejson_bench_suite =
     let dir = "data/nativejson-benchmark" in
     Array.to_list (Stdlib.Sys.readdir dir)
     |> List.filter ~f:(fun name ->
@@ -17,7 +17,14 @@ let main () =
     |> List.map ~f:(fun name -> name, Stdlib.Filename.concat dir name)
     |> List.map ~f:(fun (name, path) -> make_bench ~name ~path)
   in
-  let bench_command = Bench.make_command bench_suite in
+  let custom_bench_suite =
+    let dir = "data/custom" in
+    Array.to_list (Stdlib.Sys.readdir dir)
+    |> List.sort ~compare:String.compare
+    |> List.map ~f:(fun name -> name, Stdlib.Filename.concat dir name)
+    |> List.map ~f:(fun (name, path) -> make_bench ~name ~path)
+  in
+  let bench_command = Bench.make_command (nativejson_bench_suite @ custom_bench_suite) in
   Command_unix.run bench_command
 ;;
 

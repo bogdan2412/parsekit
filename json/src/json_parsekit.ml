@@ -89,7 +89,7 @@ module Parser = struct
           else fail "Invalid UTF-16 surrogate pair sequence"
         in
         let utf16_pair ~high ~low =
-          0x10000 lor ((high - 0xd800) lsl 10) lor (low - 0xdc00)
+          0x10000 + (((high - 0xd800) lsl 10) lor (low - 0xdc00))
         in
         let encode_utf8_one_byte code =
           assert (code <= 0b01111111);

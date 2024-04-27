@@ -93,37 +93,41 @@ module Parser = struct
         in
         let encode_utf8_one_byte code =
           assert (code <= 0b01111111);
-          emit' code
+          emit' code;
+          return ()
         in
         let encode_utf8_two_bytes code =
           assert (code lsr 6 <= 0b00011111);
           emit' (0b11000000 lor (code lsr 6));
-          emit' (0b10000000 lor (code land 0b00111111))
+          emit' (0b10000000 lor (code land 0b00111111));
+          return ()
         in
         let encode_utf8_three_bytes code =
           assert (code lsr 12 <= 0b00001111);
           emit' (0b11100000 lor (code lsr 12));
           emit' (0b10000000 lor ((code lsr 6) land 0b00111111));
-          emit' (0b10000000 lor (code land 0b00111111))
+          emit' (0b10000000 lor (code land 0b00111111));
+          return ()
         in
         let encode_utf8_four_bytes code =
           assert (code lsr 18 <= 0b00000111);
           emit' (0b11110000 lor (code lsr 18));
           emit' (0b10000000 lor ((code lsr 12) land 0b00111111));
           emit' (0b10000000 lor ((code lsr 6) land 0b00111111));
-          emit' (0b10000000 lor (code land 0b00111111))
+          emit' (0b10000000 lor (code land 0b00111111));
+          return ()
         in
         let%bind code = hex_4_digit_code in
         if code <= 0x007f
-        then return (encode_utf8_one_byte code)
+        then encode_utf8_one_byte code
         else if code <= 0x07ff
-        then return (encode_utf8_two_bytes code)
+        then encode_utf8_two_bytes code
         else if code >= 0xd800 && code <= 0xdbff
         then (
           let%bind low = utf16_low_surrogate in
           let code = utf16_pair ~high:code ~low in
-          return (encode_utf8_four_bytes code))
-        else return (encode_utf8_three_bytes code)
+          encode_utf8_four_bytes code)
+        else encode_utf8_three_bytes code
       in
       let escaped_char =
         let emit_m chr =

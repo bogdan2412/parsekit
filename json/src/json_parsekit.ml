@@ -91,43 +91,19 @@ module Parser = struct
         let utf16_pair ~high ~low =
           0x10000 + (((high - 0xd800) lsl 10) lor (low - 0xdc00))
         in
-        let encode_utf8_one_byte code =
-          assert (code <= 0b01111111);
-          emit' code;
-          return ()
-        in
-        let encode_utf8_two_bytes code =
-          assert (code lsr 6 <= 0b00011111);
-          emit' (0b11000000 lor (code lsr 6));
-          emit' (0b10000000 lor (code land 0b00111111));
-          return ()
-        in
-        let encode_utf8_three_bytes code =
-          assert (code lsr 12 <= 0b00001111);
-          emit' (0b11100000 lor (code lsr 12));
-          emit' (0b10000000 lor ((code lsr 6) land 0b00111111));
-          emit' (0b10000000 lor (code land 0b00111111));
-          return ()
-        in
-        let encode_utf8_four_bytes code =
-          assert (code lsr 18 <= 0b00000111);
-          emit' (0b11110000 lor (code lsr 18));
-          emit' (0b10000000 lor ((code lsr 12) land 0b00111111));
-          emit' (0b10000000 lor ((code lsr 6) land 0b00111111));
-          emit' (0b10000000 lor (code land 0b00111111));
-          return ()
-        in
         let%bind code = hex_4_digit_code in
-        if code <= 0x007f
-        then encode_utf8_one_byte code
-        else if code <= 0x07ff
-        then encode_utf8_two_bytes code
-        else if code >= 0xd800 && code <= 0xdbff
-        then (
-          let%bind low = utf16_low_surrogate in
-          let code = utf16_pair ~high:code ~low in
-          encode_utf8_four_bytes code)
-        else encode_utf8_three_bytes code
+        match code >= 0xd800 && code <= 0xdfff with
+        | true ->
+          (match code <= 0xdbff with
+           | true ->
+             let%bind low = utf16_low_surrogate in
+             let code = utf16_pair ~high:code ~low in
+             Utf8_encoded.emit_encoded_data (Utf8_encoded.unchecked_of_code code) ~emit;
+             return ()
+           | false -> fail "Lone UTF-16 low surrogate sequence")
+        | false ->
+          Utf8_encoded.emit_encoded_data (Utf8_encoded.unchecked_of_code code) ~emit;
+          return ()
       in
       let escaped_char =
         let emit_m chr =
@@ -147,13 +123,32 @@ module Parser = struct
         | _ -> fail "unexpected escaped character"
       in
       skip_many
-        (match%bind take1 with
-         | '\\' -> escaped_char
-         | '"' -> fail "end of string"
-         | '\000' .. '\031' -> fail "control character"
-         | char ->
-           emit char;
-           return ())
+        (let%bind utf8_encoded = take1_strict_utf8 in
+         Utf8_encoded.encoded_data
+           utf8_encoded
+           ~ascii:(fun [@inline] byte ->
+             match Char.unsafe_of_int byte with
+             | '\\' -> escaped_char
+             | '"' -> fail "end of string"
+             | '\000' .. '\031' -> fail "control character"
+             | _ ->
+               emit' byte;
+               return ())
+           ~two_byte:(fun [@inline] c1 c2 ->
+             emit' c1;
+             emit' c2;
+             return ())
+           ~three_byte:(fun [@inline] c1 c2 c3 ->
+             emit' c1;
+             emit' c2;
+             emit' c3;
+             return ())
+           ~four_byte:(fun [@inline] c1 c2 c3 c4 ->
+             emit' c1;
+             emit' c2;
+             emit' c3;
+             emit' c4;
+             return ()))
         ~at_least:0
         ~at_most:None)
     << match1 '"'

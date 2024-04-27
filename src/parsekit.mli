@@ -101,6 +101,39 @@ module type Combinators := sig
     :  ?initial_capacity:int
     -> (emit:(char -> unit) -> unit t)
     -> string t
+
+  module Utf8_encoded : sig
+    type t [@@deriving sexp_of]
+
+    val replacement_character : t
+
+    include Comparable.S with type t := t
+
+    val to_code : t -> int
+    val of_code_exn : int -> t
+    val unchecked_of_code : int -> t
+    val to_string : t -> string
+
+    val encoded_data
+      :  t
+      -> ascii:(int -> 'a)
+      -> two_byte:(int -> int -> 'a)
+      -> three_byte:(int -> int -> int -> 'a)
+      -> four_byte:(int -> int -> int -> int -> 'a)
+      -> 'a
+
+    val emit_encoded_data : t -> emit:(char -> unit) -> unit
+  end
+
+  (** UTF8 encoding parsers.
+
+      The strict version raises parse errors on invalid byte sequences, whereas the
+      non-strict version converts the invalid sequence to the Unicode Replacement
+      Character instead. *)
+
+  val take1_utf8 : Utf8_encoded.t t
+  val skip1_strict_utf8 : unit t
+  val take1_strict_utf8 : Utf8_encoded.t t
 end
 
 module type Parser := sig

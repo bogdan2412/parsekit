@@ -438,27 +438,27 @@ let%expect_test "compliance tests" =
                                      i_number_too_big_neg_int: PARSES
                                      i_number_too_big_pos_int: PARSES
                                i_number_very_big_negative_int: PARSES
-                              i_object_key_lone_2nd_surrogate: PARSES
+                              i_object_key_lone_2nd_surrogate: DOES NOT PARSE
                        i_string_1st_surrogate_but_2nd_missing: DOES NOT PARSE
                      i_string_1st_valid_surrogate_2nd_invalid: DOES NOT PARSE
                                    i_string_UTF-16LE_with_BOM: DOES NOT PARSE
-                              i_string_UTF-8_invalid_sequence: PARSES
-                               i_string_UTF8_surrogate_U+D800: PARSES
+                              i_string_UTF-8_invalid_sequence: DOES NOT PARSE
+                               i_string_UTF8_surrogate_U+D800: DOES NOT PARSE
                i_string_incomplete_surrogate_and_escape_valid: DOES NOT PARSE
-                           i_string_incomplete_surrogate_pair: PARSES
+                           i_string_incomplete_surrogate_pair: DOES NOT PARSE
                   i_string_incomplete_surrogates_escape_valid: DOES NOT PARSE
                             i_string_invalid_lonely_surrogate: DOES NOT PARSE
                                    i_string_invalid_surrogate: DOES NOT PARSE
-                                       i_string_invalid_utf-8: PARSES
+                                       i_string_invalid_utf-8: DOES NOT PARSE
                          i_string_inverted_surrogates_U+1D11E: DOES NOT PARSE
-                                         i_string_iso_latin_1: PARSES
-                               i_string_lone_second_surrogate: PARSES
-                         i_string_lone_utf8_continuation_byte: PARSES
-                                i_string_not_in_unicode_range: PARSES
-                           i_string_overlong_sequence_2_bytes: PARSES
-                           i_string_overlong_sequence_6_bytes: PARSES
-                      i_string_overlong_sequence_6_bytes_null: PARSES
-                                     i_string_truncated-utf-8: PARSES
+                                         i_string_iso_latin_1: DOES NOT PARSE
+                               i_string_lone_second_surrogate: DOES NOT PARSE
+                         i_string_lone_utf8_continuation_byte: DOES NOT PARSE
+                                i_string_not_in_unicode_range: DOES NOT PARSE
+                           i_string_overlong_sequence_2_bytes: DOES NOT PARSE
+                           i_string_overlong_sequence_6_bytes: DOES NOT PARSE
+                      i_string_overlong_sequence_6_bytes_null: DOES NOT PARSE
+                                     i_string_truncated-utf-8: DOES NOT PARSE
                                       i_string_utf16BE_no_BOM: DOES NOT PARSE
                                       i_string_utf16LE_no_BOM: DOES NOT PARSE
                                 i_structure_500_nested_arrays: PARSES

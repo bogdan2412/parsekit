@@ -1,10 +1,20 @@
 open! Core
 open! Import
 
-let make_bench ~name ~path =
+let utf8_parser =
+  let open Parsekit in
+  skip_many skip1_strict_utf8 ~at_least:0 ~at_most:None
+;;
+
+let make_bench ~name ~path kind_ =
   let contents = Stdio.In_channel.read_all path in
   Bench.Test.create ~name (fun () ->
-    Parsekit.run ~require_input_entirely_consumed:true Json_parsekit.parser contents)
+    Parsekit.run
+      ~require_input_entirely_consumed:true
+      (match kind_ with
+       | `Json -> Parsekit.ignore_m Json_parsekit.parser
+       | `Utf8 -> utf8_parser)
+      contents)
 ;;
 
 let main () =
@@ -15,14 +25,22 @@ let main () =
       String.( <> ) name "LICENSE" && String.( <> ) name "ACKNOWLEDGEMENTS")
     |> List.sort ~compare:String.compare
     |> List.map ~f:(fun name -> name, Stdlib.Filename.concat dir name)
-    |> List.map ~f:(fun (name, path) -> make_bench ~name ~path)
+    |> List.map ~f:(fun (name, path) ->
+      let name = [%string "Json: %{name}"] in
+      make_bench ~name ~path `Json)
   in
   let custom_bench_suite =
     let dir = "data/custom" in
     Array.to_list (Stdlib.Sys.readdir dir)
     |> List.sort ~compare:String.compare
     |> List.map ~f:(fun name -> name, Stdlib.Filename.concat dir name)
-    |> List.map ~f:(fun (name, path) -> make_bench ~name ~path)
+  in
+  let custom_bench_suite =
+    List.concat_map [ `Json; `Utf8 ] ~f:(fun kind_ ->
+      List.map custom_bench_suite ~f:(fun (name, path) ->
+        let kind_sexp = [%sexp (kind_ : [ `Json | `Utf8 ])] in
+        let name = [%string "%{kind_sexp#Sexp}: %{name}"] in
+        make_bench ~name ~path kind_))
   in
   let bench_command = Bench.make_command (nativejson_bench_suite @ custom_bench_suite) in
   Command_unix.run bench_command

@@ -71,7 +71,6 @@ module Parser = struct
   let string =
     match1 '"'
     >> buffered_output (fun [@inline] ~emit ->
-      let emit' chr = emit (Char.unsafe_of_int chr) in
       let unicode_escaped_char =
         let hex_4_digit_code =
           foldn ~n:4 ~init:0 ~f:(fun [@inline] acc c ->
@@ -126,28 +125,28 @@ module Parser = struct
         (let%bind utf8_encoded = take1_strict_utf8 in
          Utf8_encoded.encoded_data
            utf8_encoded
-           ~ascii:(fun [@inline] byte ->
-             match Char.unsafe_of_int byte with
+           ~ascii:(fun [@inline] char ->
+             match char with
              | '\\' -> escaped_char
              | '"' -> fail "end of string"
              | '\000' .. '\031' -> fail "control character"
              | _ ->
-               emit' byte;
+               emit char;
                return ())
            ~two_byte:(fun [@inline] c1 c2 ->
-             emit' c1;
-             emit' c2;
+             emit c1;
+             emit c2;
              return ())
            ~three_byte:(fun [@inline] c1 c2 c3 ->
-             emit' c1;
-             emit' c2;
-             emit' c3;
+             emit c1;
+             emit c2;
+             emit c3;
              return ())
            ~four_byte:(fun [@inline] c1 c2 c3 c4 ->
-             emit' c1;
-             emit' c2;
-             emit' c3;
-             emit' c4;
+             emit c1;
+             emit c2;
+             emit c3;
+             emit c4;
              return ()))
         ~at_least:0
         ~at_most:None)

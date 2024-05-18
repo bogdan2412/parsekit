@@ -150,9 +150,148 @@ let[@inline] unchecked_of_code code =
 
 let replacement_character = of_code_exn 0xfffd
 
-let[@inline] is_valid_byte_2_4 = function
-  | '\128' .. '\191' -> true
-  | _ -> false
+(* Parsing UTF-8 data naively requires a non-trivial amount of branching based
+   on the values of the first two bytes. In particular, the branching happens
+   on the first byte and the most significant 4 bits of the second byte. We can
+   instead view this as 3 consecutive 4-bit values.
+
+   Rather than performing the branches explicitly, we will look at each of the
+   3 4-bit values independently. For each of these, we will identify which
+   possible error paths in the decision tree they might be part of. We assign a
+   different error code to each path in the decision tree, while aiming to
+   share error codes for equivalent paths (such as an ASCII second byte
+   following a non-ASCII first byte). If an error code is shared between all
+   three 4-bit values, that indicates we've received invalid input
+   corresponding to the error path in the decision tree labeled with the given
+   code. If no error code is shared between the three values, then the two byte
+   sequence forms a legal beginning of an UTF-8 encoded sequence (the first
+   code of which might still be 1, 2, 3 or 4 bytes long).
+
+   It turns out that 8 bits are sufficient for encoding all different error
+   paths, which means we can represent the possible error conditions each value
+   corresponds to with 8-bit values. These can be combined using bit-wise and
+   and compared against 0 to indicate correct input.
+
+   A missing second byte can simply be modeled with a value of 0 since if the first
+   byte is ASCII, then the value of the second byte is ignored and if the first byte
+   is non-ASCII, the second byte should be a continuation, which 0 is not causing
+   an error to be raised correctly.
+
+   The decision tree is as follows:
+
+   {v
+| 0..7 -> ok
+| 8..b ->                       # first byte should not be a continuation
+  | 0..f ->
+    | 0..f -> fail 0x01
+| c ->
+  | 2..f ->
+    | 0..7 | c..f -> fail 0x02  # second byte should be a continuation
+    | 8..b -> ok
+  | 0..1 ->
+    | 0..7 | c..f -> fail 0x02
+    | 8..b -> fail 0x04         # value could instead be encoded using a single byte
+| d ->
+  | 0..f ->
+    | 0..7 | c..f -> fail 0x02
+    | 8..b -> ok
+| e ->
+  | 0 ->
+    | 0..7 | c..f -> fail 0x02
+    | 8..9 -> fail 0x08         # value could instead be encoded using two bytes
+    | a..b -> ok
+  | d ->
+    | 0..7 | c..f -> fail 0x02
+    | a..b -> fail 0x10         # surrogate pairs
+    | 8..9 -> ok
+  | 1..c | e..f ->
+    | 0..7 | c..f -> fail 0x02
+    | 8..b -> ok
+| f ->
+  | 0 ->
+    | 0..7 | c..f -> fail 0x02
+    | 8 -> fail 0x20            # value could instead be encoded using three bytes
+    | 9..b -> ok
+  | 4 ->
+    | 0..7 | c..f -> fail 0x02
+    | 9..b -> fail 0x40         # value would be too large
+    | 8 -> ok
+  | 1..3 ->
+    | 0..7 | c..f -> fail 0x02
+    | 8..b -> ok
+  | 5..f ->
+    | 0..f -> fail 0x80        # value would be too large
+   v}
+
+   The above corresponds to the following potential error code lookup tables.
+
+   {v
+byte1_high:
+0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x00 0x01 0x01 0x01 0x01 0x06 0x02 0x1A 0xE2
+byte1_low:
+0x2F 0x07 0x03 0x03 0x43 0x83 0x83 0x83 0x83 0x83 0x83 0x83 0x83 0x93 0x83 0x83
+byte2_high:
+0x03 0x03 0x03 0x03 0x83 0x83 0x83 0x83 0xAD 0xCD 0xD5 0xD5 0x83 0x83 0x83 0x83
+   v} *)
+
+let byte1_high =
+  [| 0x00
+   ; 0x00
+   ; 0x00
+   ; 0x00
+   ; 0x00
+   ; 0x00
+   ; 0x00
+   ; 0x00
+   ; 0x01
+   ; 0x01
+   ; 0x01
+   ; 0x01
+   ; 0x06
+   ; 0x02
+   ; 0x1A
+   ; 0xE2
+  |]
+;;
+
+let byte1_low =
+  [| 0x2F
+   ; 0x07
+   ; 0x03
+   ; 0x03
+   ; 0x43
+   ; 0x83
+   ; 0x83
+   ; 0x83
+   ; 0x83
+   ; 0x83
+   ; 0x83
+   ; 0x83
+   ; 0x83
+   ; 0x93
+   ; 0x83
+   ; 0x83
+  |]
+;;
+
+let byte2_high =
+  [| 0x03
+   ; 0x03
+   ; 0x03
+   ; 0x03
+   ; 0x83
+   ; 0x83
+   ; 0x83
+   ; 0x83
+   ; 0xAD
+   ; 0xCD
+   ; 0xD5
+   ; 0xD5
+   ; 0x83
+   ; 0x83
+   ; 0x83
+   ; 0x83
+  |]
 ;;
 
 let[@inline] parse_exn
@@ -162,65 +301,45 @@ let[@inline] parse_exn
   ~unsafe_advance_byte
   ~parse_error
   =
-  let[@inline] with_next_char ~is_valid f =
-    match next_byte_exists () with
-    | false -> parse_error ()
-    | true ->
-      let chr = unsafe_peek () in
-      (match is_valid chr with
-       | true ->
-         unsafe_advance_byte ();
-         f chr
-       | false -> parse_error ())
-  in
+  let byte1 = Char.to_int first_byte in
+  (* Performance optimization - shortcut ASCII code. *)
   match first_byte with
-  | '\000' .. '\127' as c -> Char.to_int c
-  | '\128' .. '\193' | '\245' .. '\255' -> parse_error ()
-  | '\194' .. '\223' as c1 ->
-    with_next_char ~is_valid:is_valid_byte_2_4 (fun [@inline] c2 ->
-      let c1 = Char.to_int c1 in
-      let c2 = Char.to_int c2 in
-      (c1 lsl 8) lor c2)
-  | '\224' .. '\239' as c1 ->
-    with_next_char
-      ~is_valid:
-        (match c1 with
-         | '\224' ->
-           (function
-             | '\160' .. '\191' -> true
-             | _ -> false)
-         | '\237' ->
-           (function
-             | '\128' .. '\159' -> true
-             | _ -> false)
-         | _ -> is_valid_byte_2_4)
-      (fun [@inline] c2 ->
-        with_next_char ~is_valid:is_valid_byte_2_4 (fun [@inline] c3 ->
-          let c1 = Char.to_int c1 in
-          let c2 = Char.to_int c2 in
-          let c3 = Char.to_int c3 in
-          (c1 lsl 16) lor (c2 lsl 8) lor c3))
-  | '\240' .. '\244' as c1 ->
-    with_next_char
-      ~is_valid:
-        (match c1 with
-         | '\240' ->
-           (function
-             | '\144' .. '\191' -> true
-             | _ -> false)
-         | '\244' ->
-           (function
-             | '\128' .. '\143' -> true
-             | _ -> false)
-         | _ -> is_valid_byte_2_4)
-      (fun [@inline] c2 ->
-        with_next_char ~is_valid:is_valid_byte_2_4 (fun [@inline] c3 ->
-          with_next_char ~is_valid:is_valid_byte_2_4 (fun [@inline] c4 ->
-            let c1 = Char.to_int c1 in
-            let c2 = Char.to_int c2 in
-            let c3 = Char.to_int c3 in
-            let c4 = Char.to_int c4 in
-            (c1 lsl 24) lor (c2 lsl 16) lor (c3 lsl 8) lor c4)))
+  | '\x00' .. '\x7f' -> byte1
+  | _ ->
+    let byte2 =
+      match next_byte_exists () with
+      | true -> Char.to_int (unsafe_peek ())
+      | false -> 0
+    in
+    let byte1_high = byte1_high.(byte1 lsr 4) in
+    let byte1_low = byte1_low.(byte1 land 15) in
+    let byte2_high = byte2_high.(byte2 lsr 4) in
+    let errors = byte1_high land byte1_low land byte2_high in
+    (match errors = 0 with
+     | false -> parse_error ()
+     | true ->
+       unsafe_advance_byte ();
+       let[@inline] with_next_continuation_char f =
+         match next_byte_exists () with
+         | false -> parse_error ()
+         | true ->
+           let chr = unsafe_peek () in
+           (match chr with
+            | '\x80' .. '\xbf' ->
+              unsafe_advance_byte ();
+              f (Char.to_int chr)
+            | _ -> parse_error ())
+       in
+       (match first_byte with
+        | '\xc2' .. '\xdf' -> (byte1 lsl 8) lor byte2
+        | '\xe0' .. '\xef' ->
+          with_next_continuation_char (fun [@inline] byte3 ->
+            (byte1 lsl 16) lor (byte2 lsl 8) lor byte3)
+        | '\xf0' .. '\xf4' ->
+          with_next_continuation_char (fun [@inline] byte3 ->
+            with_next_continuation_char (fun [@inline] byte4 ->
+              (byte1 lsl 24) lor (byte2 lsl 16) lor (byte3 lsl 8) lor byte4))
+        | _ -> failwith "BUG: branch should be unreachable"))
 ;;
 
 let[@inline] emit_encoded_data t ~emit =

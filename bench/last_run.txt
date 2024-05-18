@@ -1,14 +1,14 @@
-Sat May 18 05:12:07 PM BST 2024
+Sat May 18 09:43:35 PM BST 2024
 Estimated testing time 1m20s (8 benchmarks x 10s). Change using '-quota'.
 ┌───────────────────────────────┬──────────┬────────────────┬────────────┬────────────┬────────────┐
 │ Name                          │ Time/Run │        mWd/Run │   mjWd/Run │   Prom/Run │ Percentage │
 ├───────────────────────────────┼──────────┼────────────────┼────────────┼────────────┼────────────┤
-│ Json: canada.json             │  38.95ms │  8_033_151.91w │ 1_120.29kw │ 1_120.29kw │     70.33% │
-│ Json: citm_catalog.json       │  15.40ms │  3_083_785.00w │   351.80kw │   351.80kw │     27.80% │
-│ Json: twitter-ascii.json      │   8.72ms │  1_342_121.00w │   152.06kw │   152.06kw │     15.75% │
-│ Json: twitter.json            │   7.53ms │  1_087_437.00w │   149.30kw │   149.30kw │     13.59% │
-│ Json: rand_unicode_ascii.json │  55.39ms │ 10_585_995.00w │   397.73kw │   397.73kw │    100.00% │
-│ Json: rand_unicode_utf8.json  │  23.54ms │    920_803.00w │   363.81kw │   363.81kw │     42.50% │
-│ Utf8: rand_unicode_ascii.json │  17.35ms │          5.00w │            │            │     31.33% │
-│ Utf8: rand_unicode_utf8.json  │  12.54ms │          5.00w │            │            │     22.65% │
+│ Json: canada.json             │  38.72ms │  8_033_151.91w │ 1_121.19kw │ 1_121.19kw │     70.78% │
+│ Json: citm_catalog.json       │  15.10ms │  3_083_785.00w │   352.63kw │   352.63kw │     27.60% │
+│ Json: twitter-ascii.json      │   8.56ms │  1_342_101.00w │   151.96kw │   151.96kw │     15.65% │
+│ Json: twitter.json            │   7.44ms │  1_087_437.00w │   149.42kw │   149.42kw │     13.61% │
+│ Json: rand_unicode_ascii.json │  54.70ms │ 10_165_427.00w │   397.31kw │   397.31kw │    100.00% │
+│ Json: rand_unicode_utf8.json  │  22.82ms │    920_803.00w │   364.47kw │   364.47kw │     41.72% │
+│ Utf8: rand_unicode_ascii.json │  15.85ms │          5.00w │            │            │     28.97% │
+│ Utf8: rand_unicode_utf8.json  │  11.70ms │          5.00w │            │            │     21.39% │
 └───────────────────────────────┴──────────┴────────────────┴────────────┴────────────┴────────────┘

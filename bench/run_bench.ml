@@ -1,11 +1,6 @@
 open! Core
 open! Import
 
-let utf8_parser =
-  let open Parsekit in
-  skip_many skip1_strict_utf8 ~at_least:0 ~at_most:None
-;;
-
 let make_bench ~name ~path kind_ =
   let contents = Stdio.In_channel.read_all path in
   Bench.Test.create ~name (fun () ->
@@ -13,7 +8,7 @@ let make_bench ~name ~path kind_ =
       ~require_input_entirely_consumed:true
       (match kind_ with
        | `Json -> Parsekit.ignore_m Json_parsekit.parser
-       | `Utf8 -> utf8_parser)
+       | `Utf8 -> Parsekit.skip_strict_utf8)
       contents)
 ;;
 

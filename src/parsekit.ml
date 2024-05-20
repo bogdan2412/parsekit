@@ -705,6 +705,48 @@ module T0 = struct
     in
     run
   ;;
+
+  let skip_strict_utf8 =
+    let[@inline] run state =
+      (* Performance optimization - consume input in chunks of 64 bytes. *)
+      skip_many
+        (fun [@inline] state ->
+          for _ = 1 to 64 do
+            skip1_strict_utf8 state
+          done)
+        ~at_least:0
+        ~at_most:None
+        state;
+      skip_many skip1_strict_utf8 ~at_least:0 ~at_most:None state
+    in
+    run
+  ;;
+
+  let take_strict_utf8 = consumed_bytes skip_strict_utf8
+
+  let take_utf8 =
+    let buf = Buffer.create 8192 in
+    let parser =
+      skip_many
+        (fun [@inline] state ->
+          Utf8_encoded.emit_encoded_data (take1_utf8 state) ~emit:(fun [@inline] char ->
+            Buffer.add_char buf char);
+          Buffer.add_string buf (take_strict_utf8 state))
+        ~at_least:0
+        ~at_most:None
+    in
+    let[@inline] run state =
+      let slice = take_strict_utf8 state in
+      match State.pos state < State.input_len state with
+      | true ->
+        Buffer.clear buf;
+        Buffer.add_string buf slice;
+        parser state;
+        Buffer.contents buf
+      | false -> slice
+    in
+    run
+  ;;
 end
 
 module T = struct

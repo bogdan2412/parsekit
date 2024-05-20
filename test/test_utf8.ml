@@ -98,7 +98,10 @@ let%expect_test "string input edge conditions" =
         ~at_most:None)
   in
   let run_parser string =
-    Parsekit.run ~require_input_entirely_consumed:true parser string
+    let output1 = Parsekit.run ~require_input_entirely_consumed:true parser string in
+    let output2 = Parsekit.run ~require_input_entirely_consumed:true take_utf8 string in
+    [%test_result: string] ~expect:output1 output2;
+    output1
   in
   let test string =
     let parsed_string = run_parser string in

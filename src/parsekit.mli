@@ -110,9 +110,18 @@ module type Combinators := sig
       non-strict version converts the invalid sequence to the Unicode Replacement
       Character instead. *)
 
-  val take1_utf8 : Utf8_encoded.t t
   val skip1_strict_utf8 : unit t
   val take1_strict_utf8 : Utf8_encoded.t t
+  val take1_utf8 : Utf8_encoded.t t
+
+  (** The two methods below consume input for as long as it is valid UTF8. *)
+
+  val skip_strict_utf8 : unit t
+  val take_strict_utf8 : string t
+
+  (** Consumes all of the input until the end, replacing invalid UTF8 values with
+      the Unicode Replacement Character. *)
+  val take_utf8 : string t
 end
 
 module type Parser := sig

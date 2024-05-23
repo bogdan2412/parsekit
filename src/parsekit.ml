@@ -36,6 +36,7 @@ module State : sig
   val input_len : t -> int
   val unsafe_peek : t -> char
   val slice : t -> pos:int -> len:int -> string
+  val raw_buf : t -> string
 
   (** Position management. *)
 
@@ -62,6 +63,7 @@ end = struct
   let[@inline] input_len t = String.length t.buf
   let[@inline] unsafe_peek t = String.unsafe_get t.buf t.pos
   let[@inline] slice t ~pos ~len = String.sub t.buf ~pos ~len
+  let[@inline] raw_buf t = t.buf
   let[@inline] pos t = t.pos
   let[@inline] unsafe_advance_pos t ~by_ = t.pos <- t.pos + by_
 
@@ -673,13 +675,22 @@ module T0 = struct
 
   let take1_utf8 =
     let[@inline] run state =
-      let first_byte = take1 state in
-      Utf8_encoded.parse_exn
-        ~first_byte
-        ~next_byte_exists:(fun [@inline] () -> State.pos state < State.input_len state)
-        ~unsafe_peek:(fun [@inline] () -> State.unsafe_peek state)
-        ~unsafe_advance_byte:(fun [@inline] () -> State.unsafe_advance_pos state ~by_:1)
-        ~parse_error:(fun [@inline] () -> Utf8_encoded.replacement_character)
+      let buf = State.raw_buf state in
+      let pos = State.pos state in
+      let buf_len = String.length buf in
+      match pos >= buf_len with
+      | true -> parse_error insufficient_input_error state
+      | false ->
+        Utf8_encoded.parse_single
+          buf
+          ~pos
+          ~len:(buf_len - pos)
+          ~on_valid:(fun [@inline] ~consumed utf8_encoded ->
+            State.unsafe_advance_pos state ~by_:consumed;
+            utf8_encoded)
+          ~on_invalid:(fun [@inline] ~consumed ->
+            State.unsafe_advance_pos state ~by_:consumed;
+            Utf8_encoded.replacement_character)
     in
     run
   ;;
@@ -687,13 +698,20 @@ module T0 = struct
   let take1_strict_utf8 =
     let error_message = lazy "Unexpected UTF8 byte sequence" in
     let[@inline] run state =
-      let first_byte = take1 state in
-      Utf8_encoded.parse_exn
-        ~first_byte
-        ~next_byte_exists:(fun [@inline] () -> State.pos state < State.input_len state)
-        ~unsafe_peek:(fun [@inline] () -> State.unsafe_peek state)
-        ~unsafe_advance_byte:(fun [@inline] () -> State.unsafe_advance_pos state ~by_:1)
-        ~parse_error:(fun [@inline] () -> parse_error error_message state)
+      let buf = State.raw_buf state in
+      let pos = State.pos state in
+      let buf_len = String.length buf in
+      match pos >= buf_len with
+      | true -> parse_error insufficient_input_error state
+      | false ->
+        Utf8_encoded.parse_single
+          buf
+          ~pos
+          ~len:(buf_len - pos)
+          ~on_valid:(fun [@inline] ~consumed utf8_encoded ->
+            State.unsafe_advance_pos state ~by_:consumed;
+            utf8_encoded)
+          ~on_invalid:(fun [@inline] ~consumed:_ -> parse_error error_message state)
     in
     run
   ;;

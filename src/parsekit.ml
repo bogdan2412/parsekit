@@ -54,13 +54,17 @@ module State : sig
 end = struct
   type t =
     { buf : string
+    ; input_len : int
     ; mutable pos : int
     ; mutable protect_depth : int
     ; mutable last_commit : int
     }
 
-  let create buf = { buf; pos = 0; protect_depth = 0; last_commit = 0 }
-  let[@inline] input_len t = String.length t.buf
+  let create buf =
+    { buf; input_len = String.length buf; pos = 0; protect_depth = 0; last_commit = 0 }
+  ;;
+
+  let[@inline] input_len t = t.input_len
   let[@inline] unsafe_peek t = String.unsafe_get t.buf t.pos
   let[@inline] slice t ~pos ~len = String.sub t.buf ~pos ~len
   let[@inline] raw_buf t = t.buf
@@ -677,7 +681,7 @@ module T0 = struct
     let[@inline] run state =
       let buf = State.raw_buf state in
       let pos = State.pos state in
-      let buf_len = String.length buf in
+      let buf_len = State.input_len state in
       match pos >= buf_len with
       | true -> parse_error insufficient_input_error state
       | false ->
@@ -700,7 +704,7 @@ module T0 = struct
     let[@inline] run state =
       let buf = State.raw_buf state in
       let pos = State.pos state in
-      let buf_len = String.length buf in
+      let buf_len = State.input_len state in
       match pos >= buf_len with
       | true -> parse_error insufficient_input_error state
       | false ->

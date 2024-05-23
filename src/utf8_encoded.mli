@@ -40,10 +40,19 @@ val encoded_data
 
 val emit_encoded_data : t -> emit:(char -> unit) -> unit
 
-val parse_exn
-  :  first_byte:char
-  -> next_byte_exists:(unit -> bool)
-  -> unsafe_peek:(unit -> char)
-  -> unsafe_advance_byte:(unit -> unit)
-  -> parse_error:(unit -> t)
-  -> t
+(** Given a chunk of data found in buffer [buf] between positions [pos] and
+    [pos + len - 1] inclusive, parses a single UTF8-encoded code found at the
+    beginning of the chunk and dispatch to one of the two [on_valid] and
+    [on_invalid] methods depending on whether the consumed data was valid or
+    invalid UTF8.
+
+    In both cases, [parse_single] provides the callback with the number of
+    characters from the input that it has consumed and which should be skipped
+    over in order to continue parsing the input buffer. *)
+val parse_single
+  :  string
+  -> pos:int
+  -> len:int
+  -> on_valid:(consumed:int -> t -> 'a)
+  -> on_invalid:(consumed:int -> 'a)
+  -> 'a

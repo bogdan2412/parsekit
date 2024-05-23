@@ -294,21 +294,17 @@ let byte2_high =
   |]
 ;;
 
-let[@inline] parse_exn
-  ~first_byte
-  ~next_byte_exists
-  ~unsafe_peek
-  ~unsafe_advance_byte
-  ~parse_error
-  =
+let[@inline] parse_single buf ~pos ~len ~on_valid ~on_invalid =
+  let end_pos = pos + len in
+  let first_byte = String.unsafe_get buf pos in
   let byte1 = Char.to_int first_byte in
   (* Performance optimization - shortcut ASCII code. *)
   match first_byte with
-  | '\x00' .. '\x7f' -> byte1
+  | '\x00' .. '\x7f' -> on_valid ~consumed:1 byte1
   | _ ->
     let byte2 =
-      match next_byte_exists () with
-      | true -> Char.to_int (unsafe_peek ())
+      match pos + 1 < end_pos with
+      | true -> Char.to_int (String.unsafe_get buf (pos + 1))
       | false -> 0
     in
     let byte1_high = byte1_high.(byte1 lsr 4) in
@@ -316,29 +312,28 @@ let[@inline] parse_exn
     let byte2_high = byte2_high.(byte2 lsr 4) in
     let errors = byte1_high land byte1_low land byte2_high in
     (match errors = 0 with
-     | false -> parse_error ()
+     | false -> on_invalid ~consumed:1
      | true ->
-       unsafe_advance_byte ();
-       let[@inline] with_next_continuation_char f =
-         match next_byte_exists () with
-         | false -> parse_error ()
+       let[@inline] with_continuation_char ~offset f =
+         match pos + offset < end_pos with
+         | false -> on_invalid ~consumed:offset
          | true ->
-           let chr = unsafe_peek () in
+           let chr = String.unsafe_get buf (pos + offset) in
            (match chr with
-            | '\x80' .. '\xbf' ->
-              unsafe_advance_byte ();
-              f (Char.to_int chr)
-            | _ -> parse_error ())
+            | '\x80' .. '\xbf' -> f (Char.to_int chr)
+            | _ -> on_invalid ~consumed:offset)
        in
        (match first_byte with
-        | '\xc2' .. '\xdf' -> (byte1 lsl 8) lor byte2
+        | '\xc2' .. '\xdf' -> on_valid ~consumed:2 ((byte1 lsl 8) lor byte2)
         | '\xe0' .. '\xef' ->
-          with_next_continuation_char (fun [@inline] byte3 ->
-            (byte1 lsl 16) lor (byte2 lsl 8) lor byte3)
+          with_continuation_char ~offset:2 (fun [@inline] byte3 ->
+            on_valid ~consumed:3 ((byte1 lsl 16) lor (byte2 lsl 8) lor byte3))
         | '\xf0' .. '\xf4' ->
-          with_next_continuation_char (fun [@inline] byte3 ->
-            with_next_continuation_char (fun [@inline] byte4 ->
-              (byte1 lsl 24) lor (byte2 lsl 16) lor (byte3 lsl 8) lor byte4))
+          with_continuation_char ~offset:2 (fun [@inline] byte3 ->
+            with_continuation_char ~offset:3 (fun [@inline] byte4 ->
+              on_valid
+                ~consumed:4
+                ((byte1 lsl 24) lor (byte2 lsl 16) lor (byte3 lsl 8) lor byte4)))
         | _ -> failwith "BUG: branch should be unreachable"))
 ;;
 

@@ -730,16 +730,11 @@ module T0 = struct
 
   let skip_strict_utf8 =
     let[@inline] run state =
-      (* Performance optimization - consume input in chunks of 64 bytes. *)
-      skip_many
-        (fun [@inline] state ->
-          for _ = 1 to 64 do
-            skip1_strict_utf8 state
-          done)
-        ~at_least:0
-        ~at_most:None
-        state;
-      skip_many skip1_strict_utf8 ~at_least:0 ~at_most:None state
+      let buf = State.raw_buf state in
+      let pos = State.pos state in
+      let buf_len = State.input_len state in
+      let consumed = Utf8_encoded.valid_data_length buf ~pos ~len:(buf_len - pos) in
+      State.unsafe_advance_pos state ~by_:consumed
     in
     run
   ;;

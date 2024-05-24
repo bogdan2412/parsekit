@@ -56,3 +56,13 @@ val parse_single
   -> on_valid:(consumed:int -> t -> 'a)
   -> on_invalid:(consumed:int -> 'a)
   -> 'a
+
+(** Given a chunk of data found in buffer [buf] between positions [pos] and
+    [pos + len - 1] inclusive, parses as much valid UTF8-encoded data as
+    possible until either invalid data is encountered or the end of the data
+    chunk is encountered. The method then returns the number of bytes consumed
+    which constitute valid UTF8 data.
+
+    The method considers truncated multi-byte sequences at the end of the data
+    chunk to be invalid and does not consume them. *)
+val valid_data_length : string -> pos:int -> len:int -> int

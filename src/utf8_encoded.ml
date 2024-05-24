@@ -294,8 +294,7 @@ let byte2_high =
   |]
 ;;
 
-let[@inline] parse_single buf ~pos ~len ~on_valid ~on_invalid =
-  let end_pos = pos + len in
+let[@inline] parse_single' buf ~pos ~end_pos ~on_valid ~on_invalid =
   let first_byte = String.unsafe_get buf pos in
   let byte1 = Char.to_int first_byte in
   (* Performance optimization - shortcut ASCII code. *)
@@ -335,6 +334,37 @@ let[@inline] parse_single buf ~pos ~len ~on_valid ~on_invalid =
                 ~consumed:4
                 ((byte1 lsl 24) lor (byte2 lsl 16) lor (byte3 lsl 8) lor byte4)))
         | _ -> failwith "BUG: branch should be unreachable"))
+;;
+
+let[@inline] parse_single buf ~pos ~len ~on_valid ~on_invalid =
+  let end_pos = pos + len in
+  parse_single' buf ~pos ~end_pos ~on_valid ~on_invalid
+;;
+
+let valid_data_length =
+  let[@inline] single_loop buf ~pos ~end_pos =
+    let len = end_pos - pos in
+    let consumed = ref 0 in
+    while
+      match len - !consumed with
+      | 0 -> false
+      | _ ->
+        parse_single'
+          buf
+          ~pos:(pos + !consumed)
+          ~end_pos
+          ~on_valid:(fun [@inline] ~consumed:newly_consumed (_ : t) ->
+            consumed := !consumed + newly_consumed;
+            true)
+          ~on_invalid:(fun [@inline] ~consumed:_ -> false)
+    do
+      ()
+    done;
+    !consumed
+  in
+  fun [@inline] buf ~pos ~len ->
+    let end_pos = pos + len in
+    single_loop buf ~pos ~end_pos
 ;;
 
 let[@inline] emit_encoded_data t ~emit =

@@ -1,14 +1,14 @@
-Fri May 24 10:37:29 AM BST 2024
+Thu Jul 25 10:58:50 AM BST 2024
 Estimated testing time 1m20s (8 benchmarks x 10s). Change using '-quota'.
-┌───────────────────────────────┬──────────┬────────────────┬────────────┬────────────┬────────────┐
-│ Name                          │ Time/Run │        mWd/Run │   mjWd/Run │   Prom/Run │ Percentage │
-├───────────────────────────────┼──────────┼────────────────┼────────────┼────────────┼────────────┤
-│ Json: canada.json             │  41.67ms │  8_033_152.90w │ 1_119.42kw │ 1_119.42kw │     77.51% │
-│ Json: citm_catalog.json       │  14.96ms │  3_083_786.00w │   352.10kw │   352.10kw │     27.83% │
-│ Json: twitter-ascii.json      │   8.51ms │  1_342_102.00w │   152.28kw │   152.28kw │     15.83% │
-│ Json: twitter.json            │   7.27ms │  1_087_438.00w │   148.78kw │   148.78kw │     13.53% │
-│ Json: rand_unicode_ascii.json │  53.75ms │ 10_165_428.00w │   399.27kw │   399.27kw │    100.00% │
-│ Json: rand_unicode_utf8.json  │  22.25ms │    920_804.00w │   365.70kw │   365.70kw │     41.40% │
-│ Utf8: rand_unicode_ascii.json │   4.73ms │          6.00w │            │            │      8.80% │
-│ Utf8: rand_unicode_utf8.json  │   8.37ms │          6.00w │            │            │     15.58% │
-└───────────────────────────────┴──────────┴────────────────┴────────────┴────────────┴────────────┘
+┌───────────────────────────────┬──────────┬─────────────┬────────────┬────────────┬────────────┐
+│ Name                          │ Time/Run │     mWd/Run │   mjWd/Run │   Prom/Run │ Percentage │
+├───────────────────────────────┼──────────┼─────────────┼────────────┼────────────┼────────────┤
+│ Json: canada.json             │  38.08ms │  8_032.81kw │ 1_119.83kw │ 1_119.42kw │     69.28% │
+│ Json: citm_catalog.json       │  15.49ms │  3_084.53kw │   354.76kw │   354.79kw │     28.19% │
+│ Json: twitter-ascii.json      │   8.63ms │  1_342.45kw │   152.01kw │   152.00kw │     15.71% │
+│ Json: twitter.json            │   7.80ms │  1_087.85kw │   148.78kw │   148.77kw │     14.19% │
+│ Json: rand_unicode_ascii.json │  54.96ms │ 10_165.62kw │   397.33kw │   396.99kw │    100.00% │
+│ Json: rand_unicode_utf8.json  │  22.18ms │    920.88kw │   363.33kw │   362.58kw │     40.35% │
+│ Utf8: rand_unicode_ascii.json │   1.00ms │             │            │            │      1.83% │
+│ Utf8: rand_unicode_utf8.json  │   3.56ms │             │            │            │      6.47% │
+└───────────────────────────────┴──────────┴─────────────┴────────────┴────────────┴────────────┘

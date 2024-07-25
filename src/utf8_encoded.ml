@@ -307,7 +307,7 @@ let[@inline] parse_single' buf ~pos ~end_pos ~on_valid ~on_invalid =
       | false -> 0
     in
     let byte1_high = byte1_high.(byte1 lsr 4) in
-    let byte1_low = byte1_low.(byte1 land 15) in
+    let byte1_low = byte1_low.(byte1 land 0x0F) in
     let byte2_high = byte2_high.(byte2 lsr 4) in
     let errors = byte1_high land byte1_low land byte2_high in
     (match errors = 0 with
@@ -362,9 +362,165 @@ let valid_data_length =
     done;
     !consumed
   in
-  fun [@inline] buf ~pos ~len ->
-    let end_pos = pos + len in
-    single_loop buf ~pos ~end_pos
+  match Simd.simd_supported with
+  | true ->
+    (* Constants used to validate each pair of adjacent bytes from the input. *)
+    let byte1_high = Simd.create_repeat_array16_exn byte1_high in
+    let byte1_low = Simd.create_repeat_array16_exn byte1_low in
+    let byte2_high = Simd.create_repeat_array16_exn byte2_high in
+    let low4_bit_mask = Simd.create_exn ~init:0x0F in
+    let high_bit_mask = Simd.create_exn ~init:0x80 in
+    (* Constants used to determine whether a given position is a continuation
+       of a multi-byte sequence of a given size. *)
+    let zeroes = Simd.create_exn ~init:0x00 in
+    let is_2_or_longer_satsub = Simd.create_exn ~init:0x80 in
+    let is_3_or_longer_satsub = Simd.create_exn ~init:0xA0 in
+    let is_4_or_longer_satsub = Simd.create_exn ~init:0xB0 in
+    (* Storage for current portions of input are being processed. *)
+    let input = Simd.create_exn ~init:0 in
+    let input_shift = Simd.create_exn ~init:0 in
+    (* Validation result. *)
+    let errors = Simd.create_exn ~init:0 in
+    (* Temporary scratch space. *)
+    let tmp = Simd.create_exn ~init:0 in
+    (* Applies the same logic as in [parse_single] above to validate all adjacent
+       pairs of bytes from the input. *)
+    let[@inline] validate_byte_pairs buf ~pos =
+      Simd.unsafe_load_string ~dst:input_shift buf ~pos:(pos + 1);
+      Simd.lsr_ ~dst:tmp input 4;
+      Simd.lookup16 ~dst:errors ~table:byte1_high tmp;
+      Simd.land_ ~dst:tmp input low4_bit_mask;
+      Simd.lookup16 ~dst:tmp ~table:byte1_low tmp;
+      Simd.land_ ~dst:errors errors tmp;
+      Simd.lsr_ ~dst:tmp input_shift 4;
+      Simd.lookup16 ~dst:tmp ~table:byte2_high tmp;
+      Simd.land_ ~dst:errors errors tmp
+    in
+    (* [validate_byte_pairs] will flag all positions with values corresponding to a
+       continuation byte [0x80 .. 0xbf] as having error [0x01] since the tables were
+       built to identify whether a given pair of bytes constitutes a valid start of
+       a UTF8 encoded code.
+
+       Therefore, for each position [pos], we want to check whether there is either
+       - a start of a 2, 3 or 4 byte sequence in position [pos - 1]
+       - a start of a 3 or 4 byte sequence in [pos - 2]
+       - a start of a 4 byte sequence in [pos - 3]
+
+       If one of those statements above is true, we'd like to clear out the [0x01]
+       bit for that position.
+
+       At the same time, we need to be able to detect whether a 3-byte or 4-byte
+       is missing continuation bytes, so we'd also like to flag instances where
+       a given position does not have error bit [0x01] set, but for which any of
+       the above three statements is true.
+
+       We can satisfy both of these by determining the relevant starting positions
+       in the shifted input and [xor]-ing the resulting array onto [errors].
+
+       We can identify starting positions of multi-byte sequences by using
+       [saturating_sub] (i.e. for each position performing [max(0, t1 - t2)])
+       to filter out values that are not large enough and bit shifts to bring
+       non-zero values down to a value of [0x01].
+
+       2, 3 or 4 byte sequences start with a value in the range [0xc0..0xff], for
+       which we can subtract [0x80] and shift right by [6] to obtain a value of
+       [0x01] if and only if the value is within the range.
+
+       3 or 4 byte sequences start with a value in the range [0xe0..0xff], for which
+       we can subtract [0xa0] and shift right by [6].
+
+       4 byte sequences start with a value in the range [0xf0..0xff], for which we
+       can subtract [0xb0] and shift right by [6].
+    *)
+    let[@inline] xor_continuation_bytes ~first_step ~start_shifted_by buf ~pos =
+      let satsub =
+        match start_shifted_by with
+        | 1 -> is_2_or_longer_satsub
+        | 2 -> is_3_or_longer_satsub
+        | 3 -> is_4_or_longer_satsub
+        | _ ->
+          raise_s [%message "Invalid multi-byte sequence length" (start_shifted_by : int)]
+      in
+      (* The assumption is that the current position in the parser always corresponds to
+         the start of a UTF8 byte code, so even though we're shifting the input to the
+         right, we should never need to look at values in the input that come before the
+         current position.
+
+         This is why we can use [align_and_drop_right] on [zeroes] and [input] to pad
+         values of 0 on the left. However, in practice it turns out that loading the
+         shifted input is faster, so when we are allowed to do so (i.e. when we have
+         already processed a chunk of input and we are not at risk of looking at values
+         which we are not allowed to or are out of bounds), we do that. *)
+      (match first_step with
+       | true -> Simd.align_and_drop_right ~dst:input_shift zeroes input start_shifted_by
+       | false ->
+         Simd.unsafe_load_string ~dst:input_shift buf ~pos:(pos - start_shifted_by));
+      Simd.saturating_sub ~dst:tmp input_shift satsub;
+      Simd.lsr_ ~dst:tmp tmp 6;
+      Simd.lxor_ ~dst:errors errors tmp
+    in
+    (* If the provided position is supposed to be a continuation of a
+       multi-byte sequence, walk back the input to the start of the multi-byte
+       sequence. *)
+    let[@inline] backtrack_if_mid_code buf ~pos =
+      let backtrack =
+        match String.unsafe_get buf (pos - 1) with
+        | '\xc0' .. '\xff' -> 1
+        | '\x00' .. '\x7f' -> 0
+        | '\x80' .. '\xbf' ->
+          (match String.unsafe_get buf (pos - 2) with
+           | '\xe0' .. '\xff' -> 2
+           | '\x00' .. '\x7f' | '\xc0' .. '\xdf' -> 0
+           | '\x80' .. '\xbf' ->
+             (match String.unsafe_get buf (pos - 3) with
+              | '\xf0' .. '\xff' -> 3
+              | '\x00' .. '\xef' -> 0))
+      in
+      pos - backtrack
+    in
+    let[@inline] simd_step ~first_step buf ~pos ~end_pos =
+      match pos + 1 + Simd.simd8_width > end_pos with
+      | true -> 0
+      | false ->
+        Simd.unsafe_load_string ~dst:input buf ~pos;
+        Simd.land_ ~dst:errors input high_bit_mask;
+        (match Simd.no_bits_set errors with
+         | true -> Simd.simd8_width
+         | false ->
+           validate_byte_pairs buf ~pos;
+           xor_continuation_bytes ~first_step ~start_shifted_by:1 buf ~pos;
+           xor_continuation_bytes ~first_step ~start_shifted_by:2 buf ~pos;
+           xor_continuation_bytes ~first_step ~start_shifted_by:3 buf ~pos;
+           (match Simd.no_bits_set errors with
+            | false -> 0
+            | true ->
+              let new_pos = backtrack_if_mid_code buf ~pos:(pos + Simd.simd8_width) in
+              new_pos - pos))
+    in
+    let[@inline] simd_loop buf ~pos ~end_pos =
+      match simd_step ~first_step:true buf ~pos ~end_pos with
+      | 0 -> 0
+      | consumed ->
+        let consumed = ref consumed in
+        while
+          match simd_step ~first_step:false buf ~pos:(pos + !consumed) ~end_pos with
+          | 0 -> false
+          | newly_consumed ->
+            consumed := !consumed + newly_consumed;
+            true
+        do
+          ()
+        done;
+        !consumed
+    in
+    fun [@inline] buf ~pos ~len ->
+      let end_pos = pos + len in
+      let consumed = simd_loop buf ~pos ~end_pos in
+      consumed + single_loop buf ~pos:(pos + consumed) ~end_pos
+  | false ->
+    fun [@inline] buf ~pos ~len ->
+      let end_pos = pos + len in
+      single_loop buf ~pos ~end_pos
 ;;
 
 let[@inline] emit_encoded_data t ~emit =

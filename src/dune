@@ -1,6 +1,6 @@
 (library
  (public_name parsekit)
  (name parsekit)
- (libraries base)
+ (libraries base simd)
  (preprocess
   (pps ppx_jane)))

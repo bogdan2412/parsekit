@@ -1,0 +1,18 @@
+(library
+ (name simd)
+ (public_name simd)
+ (libraries base)
+ (foreign_stubs
+  (language cxx)
+  (names simd_stubs)
+  (flags :standard -march=native))
+ (preprocess
+  (pps ppx_jane ppx_optcomp))
+ (preprocessor_deps simd_support.h))
+
+(rule
+ (targets simd_support.h)
+ (deps
+  (:first_dep ../discover/discover.exe))
+ (action
+  (run %{first_dep})))

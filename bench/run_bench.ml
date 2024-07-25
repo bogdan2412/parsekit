@@ -3,13 +3,15 @@ open! Import
 
 let make_bench ~name ~path kind_ =
   let contents = Stdio.In_channel.read_all path in
+  let parser =
+    match kind_ with
+    | `Json -> Parsekit.ignore_m Json_parsekit.parser
+    | `Utf8 -> Parsekit.skip_strict_utf8
+  in
+  (* Do a single run at top-level to ensure parsing does not raise. *)
+  Parsekit.run ~require_input_entirely_consumed:true parser contents;
   Bench.Test.create ~name (fun () ->
-    Parsekit.run
-      ~require_input_entirely_consumed:true
-      (match kind_ with
-       | `Json -> Parsekit.ignore_m Json_parsekit.parser
-       | `Utf8 -> Parsekit.skip_strict_utf8)
-      contents)
+    Parsekit.run ~require_input_entirely_consumed:true parser contents)
 ;;
 
 let main () =

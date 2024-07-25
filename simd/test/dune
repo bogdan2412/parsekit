@@ -1,0 +1,7 @@
+(library
+ (name simd_tests)
+ (libraries base simd)
+ (inline_tests)
+ (preprocess
+  (pps ppx_jane ppx_optcomp))
+ (preprocessor_deps ../src/simd_support.h))

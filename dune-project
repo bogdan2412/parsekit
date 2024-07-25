@@ -34,3 +34,13 @@
   parsekit
   ppx_jane
   (stdio :with-test)))
+
+(package
+ (name simd)
+ (synopsis "SIMD operations in OCaml")
+ (depends
+  ocaml
+  dune
+  dune-configurator
+  base
+  ppx_jane))

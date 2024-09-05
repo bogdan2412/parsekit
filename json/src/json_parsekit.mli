@@ -25,9 +25,10 @@ type t =
   | String of string
   | List of t list
   | Dictionary of t Map.M(String).t
-[@@deriving sexp_of]
+[@@deriving compare, hash, sexp_of]
 
 val parser : t Parsekit.t
+val serialize : encoding_format:[ `Ascii | `Utf8 ] -> t -> string
 val null_exn : t -> unit
 val bool_exn : t -> bool
 val number_exn : t -> float
@@ -52,4 +53,20 @@ module Parser : sig
       -> data:t Parsekit.t
       -> t Map.M(String).t Parsekit.t
   end
+end
+
+module Serializer : sig
+  val null : Buffer.t -> unit
+  val bool : Buffer.t -> bool -> unit
+  val number : Buffer.t -> float -> unit
+  val string : encoding_format:[ `Ascii | `Utf8 ] -> Buffer.t -> string -> unit
+  val list : encoding_format:[ `Ascii | `Utf8 ] -> Buffer.t -> t list -> unit
+
+  val dictionary
+    :  encoding_format:[ `Ascii | `Utf8 ]
+    -> Buffer.t
+    -> t Map.M(String).t
+    -> unit
+
+  val json : encoding_format:[ `Ascii | `Utf8 ] -> Buffer.t -> t -> unit
 end

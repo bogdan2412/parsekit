@@ -464,3 +464,59 @@ let%expect_test "compliance tests" =
                                 i_structure_500_nested_arrays: PARSES
                            i_structure_UTF-8_BOM_empty_object: DOES NOT PARSE |}]
 ;;
+
+let%expect_test "serialization round-trips" =
+  Base_quickcheck.Test.run
+    (module Parsekit_quickcheck.Json)
+    ~config:{ Base_quickcheck.Test.default_config with test_count = 100_000 }
+    ~f:(fun json ->
+      let ascii_serialized =
+        Or_error.try_with (fun () ->
+          let value = Json.serialize ~encoding_format:`Ascii json in
+          (match
+             String.for_all value ~f:(fun char ->
+               let int = Char.to_int char in
+               0 <= int && int <= 127)
+           with
+           | true -> ()
+           | false ->
+             raise_s
+               [%message "Serialization contains non-Ascii characters" (value : string)]);
+          value)
+      in
+      let utf8_serialized =
+        Or_error.try_with (fun () -> Json.serialize ~encoding_format:`Utf8 json)
+      in
+      let from_ascii =
+        match ascii_serialized with
+        | Ok ascii_serialized ->
+          Or_error.try_with (fun () ->
+            Parsekit.run
+              Json.parser
+              ascii_serialized
+              ~require_input_entirely_consumed:true)
+        | Error _ -> Or_error.error_string "<serialization failed>"
+      in
+      let from_utf8 =
+        match utf8_serialized with
+        | Ok utf8_serialized ->
+          Or_error.try_with (fun () ->
+            Parsekit.run Json.parser utf8_serialized ~require_input_entirely_consumed:true)
+        | Error _ -> Or_error.error_string "<serialization failed>"
+      in
+      match
+        [%compare.equal: Json.t Or_error.t] (Ok json) from_ascii
+        && [%compare.equal: Json.t Or_error.t] (Ok json) from_utf8
+      with
+      | true -> Ok ()
+      | false ->
+        Or_error.error_s
+          [%message
+            "Serialization does not round trip"
+              (ascii_serialized : string Or_error.t)
+              (utf8_serialized : string Or_error.t)
+              (from_ascii : Json.t Or_error.t)
+              (from_utf8 : Json.t Or_error.t)])
+  |> Or_error.iter_error ~f:(fun error -> print_s [%sexp (error : Error.t)]);
+  [%expect {||}]
+;;

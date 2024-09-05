@@ -1,6 +1,6 @@
 (library
  (name json_parsekit_tests)
- (libraries base json_parsekit stdio)
+ (libraries base json_parsekit parsekit_quickcheck stdio)
  (inline_tests
   (deps
    (glob_files compliance/*)))

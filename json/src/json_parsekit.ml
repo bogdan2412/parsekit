@@ -25,7 +25,7 @@ type t =
   | String of string
   | List of t list
   | Dictionary of t Map.M(String).t
-[@@deriving sexp_of]
+[@@deriving compare, hash, sexp_of]
 
 module Parser = struct
   open Parsekit.With_let_syntax
@@ -212,7 +212,165 @@ module Parser = struct
   end
 end
 
+module Serializer = struct
+  let null buffer = Buffer.add_string buffer "null"
+
+  let bool buffer value =
+    match value with
+    | true -> Buffer.add_string buffer "true"
+    | false -> Buffer.add_string buffer "false"
+  ;;
+
+  let number buffer value =
+    match Float.is_nan value with
+    | true -> failwith "Cannot serialize NaN float value"
+    | false ->
+      (match Float.is_inf value with
+       | true -> failwith "Cannot serialize infinite float value"
+       | false ->
+         let value = Float.to_string value in
+         let value =
+           match String.is_suffix ~suffix:"." value with
+           | true -> [%string "%{value}0"]
+           | false -> value
+         in
+         Buffer.add_string buffer value)
+  ;;
+
+  let[@inline] unsafe_to_hex_digit value =
+    match 0 <= value && value <= 9 with
+    | true -> Char.unsafe_of_int (Char.to_int '0' + value)
+    | false -> Char.unsafe_of_int (Char.to_int 'a' + value - 10)
+  ;;
+
+  let[@inline] encode_ascii_char buffer char =
+    match char with
+    | '"' -> Buffer.add_string buffer {|\"|}
+    | '\\' -> Buffer.add_string buffer {|\\|}
+    | '\b' -> Buffer.add_string buffer {|\b|}
+    | '\012' -> Buffer.add_string buffer {|\f|}
+    | '\n' -> Buffer.add_string buffer {|\n|}
+    | '\r' -> Buffer.add_string buffer {|\r|}
+    | '\t' -> Buffer.add_string buffer {|\t|}
+    | '\000' .. '\015' ->
+      let hex_char = unsafe_to_hex_digit (Char.to_int char) in
+      Buffer.add_string buffer [%string {|\u000%{hex_char#Char}|}]
+    | '\016' .. '\031' ->
+      let hex_char = unsafe_to_hex_digit (Char.to_int char - 16) in
+      Buffer.add_string buffer [%string {|\u001%{hex_char#Char}|}]
+    | _ -> Buffer.add_char buffer char
+  ;;
+
+  let string_encoded_as_utf8 buffer value =
+    Buffer.add_char buffer '"';
+    let parser =
+      let open Parsekit.With_let_syntax in
+      skip_many
+        ~at_least:0
+        ~at_most:None
+        (let%map utf8_encoded = take1_strict_utf8 in
+         Utf8_encoded.encoded_data
+           utf8_encoded
+           ~ascii:(fun [@inline] char -> encode_ascii_char buffer char)
+           ~two_byte:(fun [@inline] c1 c2 ->
+             Buffer.add_char buffer c1;
+             Buffer.add_char buffer c2)
+           ~three_byte:(fun [@inline] c1 c2 c3 ->
+             Buffer.add_char buffer c1;
+             Buffer.add_char buffer c2;
+             Buffer.add_char buffer c3)
+           ~four_byte:(fun [@inline] c1 c2 c3 c4 ->
+             Buffer.add_char buffer c1;
+             Buffer.add_char buffer c2;
+             Buffer.add_char buffer c3;
+             Buffer.add_char buffer c4))
+    in
+    Parsekit.run parser value ~require_input_entirely_consumed:true;
+    Buffer.add_char buffer '"'
+  ;;
+
+  let string_encoded_as_ascii buffer value =
+    Buffer.add_char buffer '"';
+    let parser =
+      let open Parsekit.With_let_syntax in
+      skip_many
+        ~at_least:0
+        ~at_most:None
+        (let%map utf8_encoded = take1_strict_utf8 in
+         let code = Utf8_encoded.to_code utf8_encoded in
+         match code <= 0x7f with
+         | true -> encode_ascii_char buffer (Char.unsafe_of_int code)
+         | false ->
+           let[@inline] unsafe_to_hex_code buffer value =
+             Buffer.add_char buffer '\\';
+             Buffer.add_char buffer 'u';
+             Buffer.add_char buffer (unsafe_to_hex_digit (value lsr 12));
+             Buffer.add_char buffer (unsafe_to_hex_digit ((value lsr 8) land 0xf));
+             Buffer.add_char buffer (unsafe_to_hex_digit ((value lsr 4) land 0xf));
+             Buffer.add_char buffer (unsafe_to_hex_digit (value land 0xf))
+           in
+           (match code <= 0xffff with
+            | true -> unsafe_to_hex_code buffer code
+            | false ->
+              let code = code - 0x10000 in
+              let low = (code land 0x3ff) + 0xdc00 in
+              let high = (code lsr 10) + 0xd800 in
+              unsafe_to_hex_code buffer high;
+              unsafe_to_hex_code buffer low))
+    in
+    Parsekit.run parser value ~require_input_entirely_consumed:true;
+    Buffer.add_char buffer '"'
+  ;;
+
+  let string ~encoding_format buffer value =
+    match encoding_format with
+    | `Utf8 -> string_encoded_as_utf8 buffer value
+    | `Ascii -> string_encoded_as_ascii buffer value
+  ;;
+
+  let rec list ~encoding_format buffer list =
+    Buffer.add_char buffer '[';
+    List.fold list ~init:false ~f:(fun need_sep value ->
+      if need_sep then Buffer.add_char buffer ',';
+      Buffer.add_char buffer ' ';
+      json ~encoding_format buffer value;
+      true)
+    |> (ignore : bool -> unit);
+    Buffer.add_char buffer ' ';
+    Buffer.add_char buffer ']'
+
+  and dictionary ~encoding_format buffer dict =
+    Buffer.add_char buffer '{';
+    Map.fold dict ~init:false ~f:(fun ~key ~data need_sep ->
+      if need_sep then Buffer.add_char buffer ',';
+      Buffer.add_char buffer ' ';
+      string ~encoding_format buffer key;
+      Buffer.add_char buffer ':';
+      Buffer.add_char buffer ' ';
+      json ~encoding_format buffer data;
+      true)
+    |> (ignore : bool -> unit);
+    Buffer.add_char buffer ' ';
+    Buffer.add_char buffer '}'
+
+  and json ~encoding_format buffer value =
+    match value with
+    | Null -> null buffer
+    | Bool value -> bool buffer value
+    | Number value -> number buffer value
+    | String value -> string ~encoding_format buffer value
+    | List value -> list ~encoding_format buffer value
+    | Dictionary value -> dictionary ~encoding_format buffer value
+  ;;
+end
+
 let parser = Parser.json
+
+let serialize ~encoding_format value =
+  let buffer = Buffer.create 128 in
+  Serializer.json ~encoding_format buffer value;
+  Buffer.contents buffer
+;;
 
 let null_exn = function
   | Null -> ()

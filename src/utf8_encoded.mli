@@ -18,7 +18,7 @@
 open! Base
 open! Import
 
-type t [@@immediate] [@@deriving sexp_of]
+type t [@@immediate] [@@deriving hash, sexp_of]
 
 val replacement_character : t
 

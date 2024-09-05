@@ -1,0 +1,6 @@
+(library
+ (public_name parsekit-quickcheck)
+ (name parsekit_quickcheck)
+ (libraries base base_quickcheck json_parsekit parsekit)
+ (preprocess
+  (pps ppx_jane)))

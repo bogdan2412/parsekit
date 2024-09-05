@@ -36,6 +36,18 @@
   (stdio :with-test)))
 
 (package
+ (name parsekit-quickcheck)
+ (synopsis "Quickcheck methods for types defined by Parsekit")
+ (depends
+  ocaml
+  dune
+  base
+  base_quickcheck
+  json-parsekit
+  parsekit
+  ppx_jane))
+
+(package
  (name simd)
  (synopsis "SIMD operations in OCaml")
  (depends

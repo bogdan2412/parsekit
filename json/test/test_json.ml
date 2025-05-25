@@ -77,7 +77,8 @@ let%expect_test "Data type examples" =
   print_endline (Json.dictionary_member_exn t ~key:"two_byte_utf8" |> Json.string_exn);
   print_endline (Json.dictionary_member_exn t ~key:"three_byte_utf8" |> Json.string_exn);
   print_endline (Json.dictionary_member_exn t ~key:"four_byte_utf8" |> Json.string_exn);
-  [%expect {|
+  [%expect
+    {|
     a
     ¼ ș
     ⸦ ﬄ

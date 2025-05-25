@@ -746,9 +746,9 @@ module T0 = struct
     let parser =
       skip_many
         (fun [@inline] state ->
-          Utf8_encoded.emit_encoded_data (take1_utf8 state) ~emit:(fun [@inline] char ->
-            Buffer.add_char buf char);
-          Buffer.add_string buf (take_strict_utf8 state))
+           Utf8_encoded.emit_encoded_data (take1_utf8 state) ~emit:(fun [@inline] char ->
+             Buffer.add_char buf char);
+           Buffer.add_string buf (take_strict_utf8 state))
         ~at_least:0
         ~at_most:None
     in

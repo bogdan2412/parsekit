@@ -1,6 +1,6 @@
 (** Parser combinator library for OCaml.
 
-    Copyright (C) 2024  Bogdan-Cristian Tataroiu
+    Copyright (C) 2024-2025  Bogdan-Cristian Tataroiu
 
     This program is free software: you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
